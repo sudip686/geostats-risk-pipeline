@@ -1,0 +1,20 @@
+{
+  "project": "synthetic-sgs-demo",
+  "seed": 12345,
+  "run_date": "2026-02-27",
+  "software": {
+    "commit": "<git-commit-hash>",
+    "python": "3.11",
+    "packages": "see environment.yml"
+  },
+  "grid": {"origin":[0,0,0],"spacing":[25,25,5],"dims":[80,60,20],"rotation_deg":0},
+  "variogram": {
+    "variable":"grade",
+    "structures":[
+      {"type":"spherical","sill":0.8,"range":[150,120,30],"anisotropy":[1.0,0.8,0.25]},
+      {"type":"nugget","sill":0.2}
+    ]
+  },
+  "sgs": {"realizations":50,"max_neighbors":16,"search_radii":[120,80,20],"min_data":4,"kriging_type":"simple","mean":0.0},
+  "notes": "Synthetic demo; replace with study-specific metadata for production runs."
+}

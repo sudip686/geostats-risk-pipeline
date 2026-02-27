@@ -1,0 +1,48 @@
+project:
+  name: synthetic-sgs-demo
+  seed: 12345
+
+data:
+  collar: demo_data/collar.csv
+  survey: demo_data/survey.csv
+  assay: demo_data/assay.csv
+  litho: demo_data/litho.csv
+
+grid:
+  origin: [0.0, 0.0, 0.0]
+  spacing: [25.0, 25.0, 5.0]
+  dims: [80, 60, 20]   # nx, ny, nz
+  rotation_deg: 0.0
+  ellipsoid: [120, 80, 20]   # search radii
+
+transform:
+  normal_score: true
+  decluster:
+    method: cell
+    cell_size: [50, 50, 10]
+
+variogram:
+  variable: grade
+  model:
+    type: nested
+    structures:
+      - type: spherical
+        sill: 0.8
+        range: [150, 120, 30]
+        anisotropy: [1.0, 0.8, 0.25]
+      - type: nugget
+        sill: 0.2
+
+sgs:
+  realizations: 50
+  max_neighbors: 16
+  search_radii: [120, 80, 20]
+  min_data: 4
+  kriging_type: simple
+  mean: 0.0
+
+outputs:
+  path: outputs
+  save_realizations: true
+  save_mean: true
+  save_variance: true

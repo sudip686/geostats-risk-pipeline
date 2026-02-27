@@ -1,0 +1,15 @@
+name: geostats-risk-pipeline
+channels: [conda-forge]
+dependencies:
+  - python=3.11
+  - numpy=1.26.4
+  - scipy=1.12.0
+  - pandas=2.2.1
+  - pykrige=1.7.0
+  - gstools=1.6.1
+  - matplotlib=3.8.3
+  - pyproj=3.6.1
+  - pip
+  - pip:
+      - tqdm==4.66.2
+      - pyyaml==6.0.1

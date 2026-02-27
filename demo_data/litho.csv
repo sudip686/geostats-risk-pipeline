@@ -1,0 +1,8 @@
+hole_id,from,to,litho_code
+DH01,0,50,OX
+DH01,50,100,FR
+DH02,0,80,FR
+DH02,80,150,TR
+DH03,0,60,FR
+DH03,60,120,OX
+

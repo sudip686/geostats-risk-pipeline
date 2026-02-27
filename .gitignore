@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+outputs/
+*.parquet
+*.feather
+*.ipynb_checkpoints/
+.DS_Store
+
