@@ -1,5 +1,4 @@
-hole_id,x,y,z,azimuth,dip,length
-DH01,0,0,100,0,-60,150
-DH02,50,0,100,0,-70,180
-DH03,0,50,100,45,-65,160
-
+hole_id,x,y,z,total_depth,azimuth_deg,dip_deg
+DH01,0,0,95,150,0,-60
+DH02,50,0,100,180,0,-70
+DH03,0,50,105,160,45,-65

@@ -8,3 +8,15 @@ outputs/
 *.ipynb_checkpoints/
 .DS_Store
 
+# Local/private input data (do not push)
+data/
+Serric_Data.csv
+MODEL_OK.csv
+cross_validation*.json
+validation_metrics*.json
+risked_tonnage*.csv
+*.xlsx
+
+# Local artifacts
+*.bak
+
