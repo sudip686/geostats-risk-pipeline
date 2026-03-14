@@ -1,0 +1,6 @@
+experiment,scenario,consistency_score,predictive_score,expected_pattern,computed_dsi,predictive_effect_size,ranking_expectation,computed_air_norm
+DSI_behavior,A_high_coupling,0.9,0.88,low_separation,0.000514006716045956,,,
+DSI_behavior,B_partial_coupling,0.82,0.63,intermediate_separation,0.2911899195987341,,,
+DSI_behavior,C_stronger_separation,0.91,0.44,higher_separation,0.7598077692923696,,,
+AIR_behavior,domain_perturbation,,,,,0.78,high_rank,0.52
+AIR_behavior,cosmetic_calibration_only,,,,,0.08,low_rank,0.05

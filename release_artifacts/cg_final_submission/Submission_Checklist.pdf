@@ -1,0 +1,207 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
+2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj
+3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj
+4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj
+5 0 obj << /Length 5814 >> stream
+BT
+/F1 10 Tf
+50 790 Td
+13 TL
+(# Submission Checklist) Tj
+T*
+() Tj
+T*
+(Generated on: 2026-03-11 16:59:19) Tj
+T*
+(Source-of-truth run directory: `C:\\Users\\SUDIPTA) Tj
+T*
+(CHANDA\\OneDrive\\Desktop\\Tanga_New\\output\\review_closure\\nb_8_24_sr_250_120_70`) Tj
+T*
+(Canonical run profile match: `yes`) Tj
+T*
+(Source-of-truth summary json: `C:\\Users\\SUDIPTA) Tj
+T*
+(CHANDA\\OneDrive\\Desktop\\Tanga_New\\build\\source_of_truth.submission.json`) Tj
+T*
+() Tj
+T*
+(Regenerate command:) Tj
+T*
+(`python scripts/build_submission_package.py --strict`) Tj
+T*
+() Tj
+T*
+(| Item | Purpose | Status |) Tj
+T*
+(|---|---|---|) Tj
+T*
+(| `.tmp_build_submission_ready/Title page.docx` | Required front matter | **present** |) Tj
+T*
+(| `.tmp_build_submission_ready/Covering Letter-MS.docx` | Required cover letter | **present** |) Tj
+T*
+(| `.tmp_build_submission_ready/sudip_manuscript.docx` | Main manuscript in template style |) Tj
+T*
+(**present** |) Tj
+T*
+(| `.tmp_build_submission_ready/paper.docx` | Main manuscript with archive reference style |) Tj
+T*
+(**present** |) Tj
+T*
+(| `.tmp_build_submission_ready/Authors Statement.docx` | Author declaration | **present** |) Tj
+T*
+(| `.tmp_build_submission_ready/Conflict of interest.docx` | Conflict statement | **present** |) Tj
+T*
+(| `.tmp_build_submission_ready/Declaration of interest statement.docx` | Competing interest) Tj
+T*
+(declaration | **present** |) Tj
+T*
+(| `.tmp_build_submission_ready/Fig.docx` | Figure caption document | **present** |) Tj
+T*
+(| `.tmp_build_submission_ready/Table.docx` | Table document | **present** |) Tj
+T*
+(| `.tmp_build_submission_ready/paper.md` | Paper markdown from source-of-truth | **present** |) Tj
+T*
+(| `.tmp_build_submission_ready/paper_body.md` | Paper body from source-of-truth | **present** |) Tj
+T*
+(| `.tmp_build_submission_ready/tables_final.md` | Tables generated from source-of-truth |) Tj
+T*
+(**present** |) Tj
+T*
+(| `.tmp_build_submission_ready/figure_captions_final.md` | Figure captions generated from) Tj
+T*
+(source-of-truth | **present** |) Tj
+T*
+(| `.tmp_build_submission_ready/references.bib` | Bibliography for manuscript citeproc |) Tj
+T*
+(**present** |) Tj
+T*
+(| `.tmp_build_submission_ready/highlights.txt` | Journal-style highlights text | **present** |) Tj
+T*
+(| `.tmp_build_submission_ready/graphical_abstract_summary.txt` | Graphical abstract narrative) Tj
+T*
+(text | **present** |) Tj
+T*
+(| `.tmp_build_submission_ready/figures` | Figure image folder | **present** |) Tj
+T*
+(| `.tmp_build_submission_ready/supplement` | Supplement data folder | **present** |) Tj
+T*
+(| `.tmp_build_submission_ready/supplement/software_manifest.json` | Software/environment) Tj
+T*
+(manifest for reproducibility | **present** |) Tj
+T*
+(| `.tmp_build_submission_ready/supplement/synthetic_validation_reference.csv` | Deterministic) Tj
+T*
+(synthetic validation reference used in provenance statement | **present** |) Tj
+T*
+(| `.tmp_build_submission_ready/supplement/cross_validation_300.json` | Random-fold CV) Tj
+T*
+(diagnostics \(n=300\) referenced in manuscript | **present** |) Tj
+T*
+(| `.tmp_build_submission_ready/supplement/cross_validation_600.json` | Random-fold CV) Tj
+T*
+(diagnostics \(n=600\) referenced in manuscript | **present** |) Tj
+T*
+(| `.tmp_build_submission_ready/supplement/cross_validation_blocked_300.json` | Blocked CV) Tj
+T*
+(diagnostics \(n=300\) referenced in manuscript | **present** |) Tj
+T*
+(| `.tmp_build_submission_ready/SUBMISSION_CHECKLIST.md` | Auto-generated package checklist |) Tj
+T*
+(**present** |) Tj
+T*
+(| `.tmp_build_submission_ready/source_of_truth.submission.json` | Source-of-truth payload copy) Tj
+T*
+(| **present** |) Tj
+T*
+(| `.tmp_build_submission_ready/SOURCE_OF_TRUTH.md` | Source-of-truth marker file | **present**) Tj
+T*
+(|) Tj
+T*
+(| `.tmp_build_submission_ready/submission_package_final_clean.zip` | Submission zip copied into) Tj
+T*
+(package | **present** |) Tj
+T*
+(| `submission_package_final_clean.zip` | Submission zip at project root | **present** |) Tj
+T*
+() Tj
+T*
+(## Optional Root Inputs) Tj
+T*
+() Tj
+T*
+(| Item | Status |) Tj
+T*
+(|---|---|) Tj
+T*
+(| `manuscript.md` | **present** |) Tj
+T*
+(| `tables.md` | **present** |) Tj
+T*
+(| `figure_captions.md` | **present** |) Tj
+T*
+(| `config/project_best_fit.yaml` | **present** |) Tj
+T*
+() Tj
+T*
+(## Editorial and Content Criteria) Tj
+T*
+() Tj
+T*
+(- [x] equations are present as display formulas in manuscript methods) Tj
+T*
+(- [x] equations are summarized in a dedicated table for reviewer readability) Tj
+T*
+(- [x] novelty statement is explicit in Introduction) Tj
+T*
+(- [x] QA/QC and data-reliability subsection is included in Methods) Tj
+T*
+(- [x] domain sensitivity and top-cut policy subsections are included in Methods) Tj
+T*
+(- [x] key outcomes snapshot is present at Results entry) Tj
+T*
+(- [x] validation hierarchy section is included and independent-validation limits are explicit) Tj
+T*
+(- [x] quantitative benchmark context section is included) Tj
+T*
+(- [x] multi-cutoff tonnage-risk translation section is included) Tj
+T*
+(- [x] study limitations and practical implications sections are present) Tj
+T*
+(- [x] geology section is explicit from regional framework to project-scale controls) Tj
+T*
+(- [x] data availability includes tag/hash/environment/license and proprietary-data disclosure) Tj
+T*
+(- [x] reproducibility command block and software manifest are present) Tj
+T*
+(- [x] highlights and graphical abstract summary text assets are present) Tj
+T*
+(- [x] core three generated docs are present \(`paper.docx`, `Fig.docx`, `Table.docx`\)) Tj
+T*
+(- [x] core three generated text files are present \(`paper.md`, `tables_final.md`,) Tj
+T*
+(`figure_captions_final.md`\)) Tj
+T*
+() Tj
+T*
+(## Verification Issues) Tj
+T*
+() Tj
+T*
+(- [x] No critical manuscript consistency issues detected by strict checks) Tj
+T*
+ET
+endstream endobj
+xref
+0 6
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000247 00000 n 
+0000000317 00000 n 
+trailer << /Size 6 /Root 1 0 R >>
+startxref
+6183
+%%EOF
