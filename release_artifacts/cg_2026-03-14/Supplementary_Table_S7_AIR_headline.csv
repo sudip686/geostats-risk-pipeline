@@ -1,0 +1,10 @@
+pair,effect_type,factor,effect_size,air_norm
+domain_variogram,main,domain,0.8198067394270687,0.18563831819354726
+domain_neighborhood,main,domain,0.7791814898482787,0.17643907324312122
+trend_domain,interaction,trendxdomain,0.7789464555082788,0.17638585170016854
+trend_domain,main,trend,-0.5536824136375738,0.12537671031206135
+domain_variogram,main,variogram,0.49575818479833383,0.11226025748576537
+trend_domain,main,domain,0.475139558057619,0.10759134345087738
+domain_neighborhood,main,neighborhood,-0.25316090786277623,0.05732615128394931
+domain_neighborhood,interaction,domainxneighborhood,0.17086259192695913,0.038690392115680816
+domain_variogram,interaction,domainxvariogram,0.08961209276937931,0.020291902214828798
