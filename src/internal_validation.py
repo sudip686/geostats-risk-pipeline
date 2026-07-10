@@ -10,10 +10,10 @@ from src.utils.io import load_config
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_MODEL = ROOT / "outputs" / "internal_validation" / "model_input" / "MODEL_OK.csv"
+DEFAULT_MODEL = ROOT / "Tanga_MRE_2026-01-06 1" / "OneDrive_2026-01-06" / "Export Final" / "04 BM" / "CSV" / "MODEL_OK.csv"
 
 
-def run(config_path: str = "config/project.yaml", output_dir: str = "outputs") -> dict:
+def run(config_path: str = "config/main_config.yaml", output_dir: str = "outputs") -> dict:
     cfg = load_config(config_path)
     iv_cfg = cfg.get("internal_validation", {})
 
@@ -21,7 +21,7 @@ def run(config_path: str = "config/project.yaml", output_dir: str = "outputs") -
         return {"enabled": False, "status": "skipped"}
 
     model_csv = Path(iv_cfg.get("model_csv", str(DEFAULT_MODEL)))
-    script_path = ROOT / "scripts" / "internal_validation_block_model.py"
+    script_path = ROOT / "src" / "internal_validation_block_model.py"
 
     cmd = [
         sys.executable,
@@ -43,3 +43,4 @@ def run(config_path: str = "config/project.yaml", output_dir: str = "outputs") -
             "model_csv": str(model_csv),
             "error": str(exc),
         }
+

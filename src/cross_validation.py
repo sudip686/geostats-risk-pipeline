@@ -52,7 +52,7 @@ def _blocked_kfold_indices(df, k=5, seed=42, block_size_xy=500.0):
 
 
 def run(
-    config_path='config/project.yaml',
+    config_path='config/main_config.yaml',
     output_dir='outputs',
     max_samples=300,
     k_folds=5,
@@ -75,7 +75,11 @@ def run(
     trend_cols = trend_cfg.get('columns')
     use_trend = bool(trend_cfg.get('enabled') and trend_cols)
 
-    vario_model, _, _ = run_variography(data_path=None, data_dir=config.get('data_dir', 'data'), config=config)
+    vario_model, _, _ = run_variography(
+        data_path=decl_path,
+        data_dir=config.get('data_dir', 'data'),
+        config=config,
+    )
 
     if len(data) > max_samples:
         data = data.sample(n=max_samples, random_state=seed).reset_index(drop=True)
@@ -89,8 +93,9 @@ def run(
     else:
         folds = _kfold_indices(len(data), k=k_folds, seed=seed)
     preds = np.full(len(data), np.nan, dtype=float)
+    fold_rows = []
 
-    for test_idx in folds:
+    for fold_id, test_idx in enumerate(folds):
         train_mask = np.ones(len(data), dtype=bool)
         train_mask[test_idx] = False
         train_idx = np.where(train_mask)[0]
@@ -129,6 +134,19 @@ def run(
             else:
                 preds[idx] = pred_res
 
+        fold_valid = np.isfinite(preds[test_idx]) & np.isfinite(y_all[test_idx])
+        if np.any(fold_valid):
+            fold_errors = preds[test_idx][fold_valid] - y_all[test_idx][fold_valid]
+            fold_rows.append(
+                {
+                    'fold': int(fold_id),
+                    'n': int(np.sum(fold_valid)),
+                    'ME': float(np.mean(fold_errors)),
+                    'MAE': float(np.mean(np.abs(fold_errors))),
+                    'RMSE': float(np.sqrt(np.mean(fold_errors**2))),
+                }
+            )
+
     valid = np.isfinite(preds) & np.isfinite(y_all)
     errors = preds[valid] - y_all[valid]
     metrics = {
@@ -145,6 +163,9 @@ def run(
     os.makedirs(os.path.join(output_dir, 'tables'), exist_ok=True)
     with open(os.path.join(output_dir, 'tables', output_name), 'w') as f:
         json.dump(metrics, f, indent=2)
+    if fold_rows:
+        fold_name = output_name.replace('.json', '_folds.csv')
+        pd.DataFrame(fold_rows).to_csv(os.path.join(output_dir, 'tables', fold_name), index=False)
 
     return metrics
 

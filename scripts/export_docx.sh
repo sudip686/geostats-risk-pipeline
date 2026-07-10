@@ -6,6 +6,12 @@ SUB_DIR="$ROOT_DIR/submission"
 PAPER_MD="$SUB_DIR/paper.md"
 
 if ! command -v pandoc >/dev/null 2>&1; then
+  if [ -x "/c/Users/SUDIPTA CHANDA/AppData/Local/Pandoc/pandoc.exe" ]; then
+    export PATH="$PATH:/c/Users/SUDIPTA CHANDA/AppData/Local/Pandoc"
+  fi
+fi
+
+if ! command -v pandoc >/dev/null 2>&1; then
   echo "pandoc not found. Install pandoc to export DOCX."
   exit 1
 fi

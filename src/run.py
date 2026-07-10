@@ -10,7 +10,7 @@ from src.run_all import run_full_workflow
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Graphite SGS workflow (compat entrypoint)")
-    parser.add_argument("--config", default="config/project.yaml", help="Config file path")
+    parser.add_argument("--config", default="config/main_config.yaml", help="Config file path")
     parser.add_argument("--output", default="outputs", help="Output directory")
     args = parser.parse_args()
 

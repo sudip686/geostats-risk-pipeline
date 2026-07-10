@@ -1,22 +1,42 @@
-__pycache__/
+﻿__pycache__/
 *.pyc
 .venv/
 .env
+.DS_Store
+.ipynb_checkpoints/
+
+# Proprietary project data and computational outputs
+data/
+!demo_data/
+output/
 outputs/
+build/
+tmp/
+submission/
+submission_ready/
+.tmp_build_submission/
+.tmp_build_submission_ready_independent/
+release_artifacts/
+
+# Generated publication artifacts and local diagnostics
+*.docx
+*.pdf
+*.tif
+*.tiff
+*.png
+*.zip
+*.npy
+*.npz
 *.parquet
 *.feather
-*.ipynb_checkpoints/
-.DS_Store
+*.xlsx
+*.bak
+*.log
+*.db
 
-# Local/private input data (do not push)
-data/
+# Local data exports
 Serric_Data.csv
 MODEL_OK.csv
 cross_validation*.json
 validation_metrics*.json
 risked_tonnage*.csv
-*.xlsx
-
-# Local artifacts
-*.bak
-

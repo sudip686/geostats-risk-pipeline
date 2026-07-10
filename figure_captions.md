@@ -1,25 +1,15 @@
-# Figure Captions for Graphite SGS Paper
+# Figure Captions
 
-## Figure 1: Directional Variogram (Normal-Score Domain)
+**Fig. 1** Original regional-to-local geological synthesis for the northeastern Tanzanian graphite system. (a) East African country outlines and a generalized East African Orogen-Mozambique Belt trace locate the study area. (b) Generalized Tanzanian tectonic provinces place the site in the eastern Mozambique Belt relative to the Tanzania Craton, western Proterozoic belts, Usagaran Belt and coastal cover. (c) A new categorical redraw of the owned project geological map shows graphitic schist, adjacent metamorphic units and the 100 canonical drill collars in WGS 84 / UTM zone 37S. Regional relationships are synthesized from the cited regional and local geological frameworks [2, 5]; no published map panel or satellite image is reproduced. The figure establishes the geological basis for the fabric-parallel prior while leaving contact, thickness and between-hole grade continuity to be tested
 
-**Figure 1.** Experimental directional variograms (points) and fitted exponential model (line) for TGC normal scores. Model parameters used in simulation are nugget 0.24, structured sill 0.96, and ranges 237.5 m (along strike), 188.5 m (down dip), and 112.5 m (normal to plane). Normal-to-plane continuity is treated as provisional because lag support collapses at higher lags (Table 9); configured normal-range sensitivity is summarized in Table 15. Variogram tuning was enabled in the best-fit run (target major range 150 m; nugget ratio 0.20).
+**Fig. 2** Structural and geostatistical anisotropy convention used for the SGS test. (a) Plan-view composite support and the canonical 000/180 degrees north-south strike/corridor proxy. (b) East-west projection showing the 090 degrees/30 degrees down-dip direction and the orthogonal 270 degrees/60 degrees plane normal. (c) Canonical 250/200/20 m search ellipsoid. The convention is supported by the local graphitic corridor and study-scale section geometry. It is a global first-order geostatistical proxy, not a field-measured regional structural trend or locally varying anisotropy result
 
-## Figure 2: Global Histogram Validation
+**Fig. 3** Observed drillhole evidence used to frame the SGS prior. (a) Along-strike projection of assayed composites by TGC. (b) Down-dip projection on the same TGC scale. (c) Along-corridor composite metres and the length-weighted percentage at or above the 3% TGC screening threshold. The enlarged projections show where support is dense, sparse or threshold dominated and link drilling geometry to contact, thickness and elevation uncertainty; they are geological evidence, not independent SGS validation
 
-**Figure 2.** Histogram comparison between internal reference grades and SGS grades. Distributional agreement is quantified in Table 7 (baseline vs final histogram overlap and moments).
+**Fig. 4** Contact and weathering evidence. (a) Signed graphitic-host profile across 134 contiguous logged transitions in 42 drillholes; negative distances are host/waste, positive distances are graphitic, counts are composites and bars are 95% hole-cluster bootstrap intervals. (b) Fresh versus weathered graphitic TGC distributions. Weathered composites exceed fresh composites by 0.59% TGC on average (Hedges g = 0.26; hole-cluster 95% interval 0.11 to 1.06), but paired-hole sensitivity is inconclusive (Wilcoxon p = 0.167). (c) Fresh, oxide and kaolinised XRF weathering data reported by Das et al. [2]. The figure supports contact and weathering state as uncertainty axes without proving causal enrichment, a hard contact between holes, deposit-scale grade control or product quality
 
-## Figure 3: Q-Q Validation Plot
+**Fig. 5** Archive-derived lode-envelope reporting products. (a) Vertical envelope occupancy from retained 25 x 25 x 2 m blocks aggregated to reporting support; it is an occupancy display, not true geological thickness. (b) Envelope-weighted cell P50 TGC. (c) Envelope-weighted P90-P10 TGC spread. (d) Envelope-weighted P(TGC > 3%). Maps share extent, collar frame and white outside-mask treatment. The mask is an algorithmic seven-lode, DEM-clipped reporting-support sensitivity derived from overlapping project lithology and threshold information; it is not independent validation
 
-**Figure 3.** Q-Q comparison between internal reference grades and SGS grades. Distributional agreement is quantified in Table 7 (baseline vs final Q-Q RMSE).
+**Fig. 6** Plan and section expression of the archive-derived reporting envelope. (a) Envelope-constrained plan-view TGC spread with lode-footprint boundary, drill traces, collars and selected section line. (b) P(TGC > 3%) and (c) P90-P10 TGC spread on the east-west section, both masked outside the lode envelope. (d)-(f) Fixed realisations 1, 50 and 100 on the same masked section and colour scale. The black line is the archived DEM-derived surface where available; black points are projected composite observations within the plus or minus 75 m slab. Panels (b)-(f) use 4x vertical exaggeration. The figure shows model behaviour inside a common reporting support, not independent lode validation
 
-## Figure 4: Swath Validation (X, Y, Z)
-
-**Figure 4.** Swath means of reference data (red), SGS P50 (blue), and SGS P10-P90 envelope (shaded) along X, Y, and Z. Spatial agreement is moderate in X and Y and weaker in Z, consistent with low normal-direction lag support (Table 9). This figure is a model-validation diagnostic, not a resource-classification plot.
-
-## Figure 5: Trend Diagnostic
-
-**Figure 5.** Binned grade-versus-z trend before detrending and residual trend after detrending (`outputs/figures/trend_diagnostic.png`). Quantitative trend parameters are reported in Table 10.
-
-## Figure 6: Composite Length Distribution
-
-**Figure 6.** Histogram of composite support lengths (outputs/figures/composite_length_hist.png) used in the support sensitivity assessment summarized in Table 11.
+**Fig. 7** Reporting-support sensitivity and envelope-aligned model behaviour. (a) Ensemble mean TGC for the full rectangular box, any lode-intersection cells, fractional lode volume and full-cell lode core; labels give reporting-volume fractions and the dashed line is the declustered graphitic-composite mean. (b) Envelope probability MAE, spread correlation and hotspot Jaccard versus number of realisations. (c) Matched-space input variograms and simulation envelopes. (d) Graphitic-composite swaths and envelope P50 with P10-P90 bands along strike/corridor, down dip and thickness normal; aligned bars give composite support. Swath P50 correlations are 0.777/0.823/0.840. The lode-envelope comparison is a support sensitivity because both representations share project data

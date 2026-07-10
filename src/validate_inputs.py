@@ -26,6 +26,8 @@ def validate_collar(collar_df):
     for col in required_cols:
         if col not in collar_df.columns:
             issues.append(f"Missing required column: {col}")
+    if issues:
+        return issues
 
     if collar_df.empty:
         issues.append("Collar data is empty")
@@ -52,6 +54,8 @@ def validate_survey(survey_df):
     for col in required_cols:
         if col not in survey_df.columns:
             issues.append(f"Missing required column: {col}")
+    if issues:
+        return issues
 
     if survey_df.empty:
         issues.append("Survey data is empty")
@@ -84,6 +88,8 @@ def validate_assay(assay_df, collar_df):
     for col in required_cols:
         if col not in assay_df.columns:
             issues.append(f"Missing required column: {col}")
+    if issues:
+        return issues
 
     if assay_df.empty:
         issues.append("Assay data is empty")
@@ -127,6 +133,8 @@ def validate_lithology(litho_df):
     for col in required_cols:
         if col not in litho_df.columns:
             issues.append(f"Missing required column: {col}")
+    if issues:
+        return issues
 
     if litho_df.empty:
         issues.append("Lithology data is empty")
@@ -140,7 +148,7 @@ def validate_lithology(litho_df):
     return issues
 
 
-def run_validation(data_dir='data'):
+def run_validation(data_dir='data', config_path='config/main_config.yaml', output_dir='outputs'):
     """
     Run full validation pipeline.
 
@@ -159,19 +167,13 @@ def run_validation(data_dir='data'):
         'issues': []
     }
 
-    try:
-        collar = pd.read_csv(f"{data_dir}/collar.csv")
-        survey = pd.read_csv(f"{data_dir}/survey.csv")
-        assay = pd.read_csv(f"{data_dir}/assay.csv")
-        litho = pd.read_csv(f"{data_dir}/lithology.csv")
-    except FileNotFoundError as e:
-        report['issues'].append(f"Data file not found: {e}")
+    from src.utils.io import load_data
+
+    collar, survey, assay, litho = load_data(data_dir)
+    if collar is None:
+        report['issues'].append(f"Required drillhole CSVs could not be loaded from {data_dir}")
         report['passed'] = False
         return report
-
-    # Standardize column names
-    for df in [collar, survey, assay, litho]:
-        df.columns = df.columns.str.strip().str.lower()
 
     # Validate each table
     report['issues'].extend(validate_collar(collar))
@@ -195,7 +197,7 @@ def run_validation(data_dir='data'):
     # Grid overlap check (if config exists)
     try:
         from src.utils.io import load_config
-        config = load_config('config/project.yaml')
+        config = load_config(config_path)
         grid = config.get('grid', {})
         origin = grid.get('origin_xyz')
         nx, ny, nz = grid.get('nx'), grid.get('ny'), grid.get('nz')
@@ -239,7 +241,7 @@ def run_validation(data_dir='data'):
             logger.info(f"Collar samples inside grid: {coverage:.1f}%")
 
             # Domain sample coverage (if domain data exists)
-            domain_path = os.path.join('outputs', 'domain_data.csv')
+            domain_path = os.path.join(output_dir, 'domain_data.csv')
             if os.path.exists(domain_path):
                 domain = pd.read_csv(domain_path)
                 domain_in = (

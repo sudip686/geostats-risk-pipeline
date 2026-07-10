@@ -178,7 +178,7 @@ def update_tables_md(tables_path, vario, risk, grid_meta, config, validation=Non
         f.write('\n'.join(lines) + '\n')
 
 
-def run(output_dir='outputs', tables_path='paper/tables.md', config_path='config/project.yaml'):
+def run(output_dir='outputs', tables_path='paper/tables.md', config_path='config/main_config.yaml'):
     from src.utils.io import load_config
 
     config = load_config(config_path)

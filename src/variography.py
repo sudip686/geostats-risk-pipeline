@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import logging
+import csv
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,7 @@ def estimate_directional_variogram(
     max_dist=200,
     max_pairs=200000,
     dip_positive_down=True,
+    return_debug=False,
 ):
     """
     Estimate directional variogram along a specific direction.
@@ -45,78 +47,144 @@ def estimate_directional_variogram(
         max_dist: maximum distance
 
     Returns:
-        bin_centers, gamma values
+        bin_centers, gamma values, counts
+        if return_debug=True, also returns debug dict
     """
     x, y, z = coords
-
-    # Convert azimuth/dip to radians
-    az_rad = np.radians(azimuth)
-    dip_rad = np.radians(dip)
 
     # Compute direction vector (dip-positive-down)
     dir_vec = az_dip_to_unit_vector(azimuth, dip, dip_positive_down=dip_positive_down)
     dir_x, dir_y, dir_z = dir_vec
 
-    # Compute distances and projections along direction
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    z = np.asarray(z, dtype=float)
+    values = np.asarray(values, dtype=float)
     n = len(x)
-    distances = []
-    gamma_vals = []
+    angle_bins = np.arange(0.0, 95.0, 5.0)
+    angle_hist = np.zeros(len(angle_bins) - 1, dtype=float)
+    debug = {
+        'n_points': int(n),
+        'possible_pairs': int(n * (n - 1) // 2),
+        'target_pairs': 0,
+        'attempts': 0,
+        'non_self_pairs': 0,
+        'distance_filtered_pairs': 0,
+        'angle_evaluated_pairs': 0,
+        'angle_accepted_pairs': 0,
+        'binned_pairs': 0,
+        'nonzero_lags': 0,
+        'total_lag_pairs': 0,
+        'angle_hist_bins_deg': angle_bins.tolist(),
+        'angle_hist_counts': angle_hist.tolist(),
+    }
+    if n < 2:
+        if return_debug:
+            return np.array([]), np.array([]), np.array([]), debug
+        return np.array([]), np.array([]), np.array([])
 
-    pair_count = 0
-    order = np.random.permutation(n)
-    for i in order:
-        for j in order:
-            # Distance between points
-            dx = x[j] - x[i]
-            dy = y[j] - y[i]
-            dz_val = z[j] - z[i]
-            h = np.sqrt(dx**2 + dy**2 + dz_val**2)
-
-            if h < 1 or h > max_dist:
-                continue
-
-            # Project onto direction vector
-            proj = dx * dir_x + dy * dir_y + dz_val * dir_z
-
-            # Check if within angular tolerance
-            if h > 0:
-                cos_angle = abs(proj) / h
-                angle = np.degrees(np.arccos(np.clip(cos_angle, -1, 1)))
-
-                if angle <= tolerance:
-                    distances.append(abs(proj))
-                    gamma_vals.append((values[i] - values[j])**2)
-                    pair_count += 1
-                    if pair_count >= max_pairs:
-                        break
-        if pair_count >= max_pairs:
-            break
-
-    if len(gamma_vals) < 10:
-        logger.warning(f"Too few pairs for direction {azimuth}/{dip}: {len(gamma_vals)}")
-        return np.array([]), np.array([])
-
-    # Bin the distances
+    # Bin by true separation distance. Directionality is controlled by angular tolerance.
     bins = np.linspace(0, max_dist, n_lags + 1)
     bin_centers = (bins[:-1] + bins[1:]) / 2
-    gamma_binned = np.zeros(n_lags)
+    counts = np.zeros(n_lags, dtype=float)
+    sum_sq = np.zeros(n_lags, dtype=float)
 
-    for d, g in zip(distances, gamma_vals):
-        bin_idx = np.searchsorted(bins[1:], d)
-        if bin_idx < n_lags:
-            gamma_binned[bin_idx] += g
+    rng = np.random.default_rng(1337)
+    total_pairs = n * (n - 1) // 2
+    target_pairs = min(total_pairs, max_pairs)
+    debug['target_pairs'] = int(target_pairs)
 
-    # Count pairs per bin
-    counts = np.zeros(n_lags)
-    for d in distances:
-        bin_idx = np.searchsorted(bins[1:], d)
-        if bin_idx < n_lags:
-            counts[bin_idx] += 1
+    accepted = 0
+    attempts = 0
+    max_attempts = 25
+    batch = min(max(20000, max_pairs), 200000)
 
-    # Normalize
+    while accepted < target_pairs and attempts < max_attempts:
+        attempts += 1
+        i = rng.integers(0, n, size=batch)
+        j = rng.integers(0, n, size=batch)
+        keep = i != j
+        if not np.any(keep):
+            continue
+
+        i = i[keep]
+        j = j[keep]
+        debug['non_self_pairs'] += int(len(i))
+
+        # Canonicalize pair ordering (undirected pairs).
+        lo = np.minimum(i, j)
+        hi = np.maximum(i, j)
+        i = lo
+        j = hi
+
+        dx = x[j] - x[i]
+        dy = y[j] - y[i]
+        dz_val = z[j] - z[i]
+        h = np.sqrt(dx * dx + dy * dy + dz_val * dz_val)
+
+        dist_ok = (h >= 1.0) & (h <= max_dist)
+        if not np.any(dist_ok):
+            continue
+
+        debug['distance_filtered_pairs'] += int(np.count_nonzero(dist_ok))
+        dx = dx[dist_ok]
+        dy = dy[dist_ok]
+        dz_val = dz_val[dist_ok]
+        h = h[dist_ok]
+        i = i[dist_ok]
+        j = j[dist_ok]
+
+        proj = dx * dir_x + dy * dir_y + dz_val * dir_z
+        cos_angle = np.clip(np.abs(proj) / h, -1.0, 1.0)
+        angle = np.degrees(np.arccos(cos_angle))
+        hist_counts, _ = np.histogram(angle, bins=angle_bins)
+        angle_hist += hist_counts
+        debug['angle_evaluated_pairs'] += int(len(angle))
+        ang_ok = angle <= tolerance
+        if not np.any(ang_ok):
+            continue
+
+        debug['angle_accepted_pairs'] += int(np.count_nonzero(ang_ok))
+        h_dir = h[ang_ok]
+        i_dir = i[ang_ok]
+        j_dir = j[ang_ok]
+
+        gamma_sq = (values[i_dir] - values[j_dir]) ** 2
+        # Bins are [left, right), final bin includes the edge.
+        bin_idx = np.searchsorted(bins, h_dir, side="right") - 1
+        valid_bin = (bin_idx >= 0) & (bin_idx < n_lags)
+        if not np.any(valid_bin):
+            continue
+
+        bin_idx = bin_idx[valid_bin]
+        gamma_sq = gamma_sq[valid_bin]
+        counts += np.bincount(bin_idx, minlength=n_lags)
+        sum_sq += np.bincount(bin_idx, weights=gamma_sq, minlength=n_lags)
+        accepted += int(valid_bin.sum())
+
+    if counts.sum() < 10:
+        logger.warning(f"Too few pairs for direction {azimuth}/{dip}: {int(counts.sum())}")
+        debug['attempts'] = int(attempts)
+        debug['binned_pairs'] = int(counts.sum())
+        debug['nonzero_lags'] = int(np.count_nonzero(counts))
+        debug['total_lag_pairs'] = int(counts.sum())
+        debug['angle_hist_counts'] = angle_hist.astype(int).tolist()
+        if return_debug:
+            return np.array([]), np.array([]), np.array([]), debug
+        return np.array([]), np.array([]), np.array([])
+
+    gamma_binned = np.full(n_lags, np.nan, dtype=float)
     valid = counts > 0
-    gamma_binned[valid] /= (2 * counts[valid])
+    gamma_binned[valid] = 0.5 * (sum_sq[valid] / counts[valid])
 
+    debug['attempts'] = int(attempts)
+    debug['binned_pairs'] = int(counts.sum())
+    debug['nonzero_lags'] = int(np.count_nonzero(counts))
+    debug['total_lag_pairs'] = int(counts.sum())
+    debug['angle_hist_counts'] = angle_hist.astype(int).tolist()
+
+    if return_debug:
+        return bin_centers, gamma_binned, counts, debug
     return bin_centers, gamma_binned, counts
 
 
@@ -217,6 +285,41 @@ def apply_variogram_tuning(fitted_model, config):
     return fitted_model
 
 
+def build_covariance_model(model_type='exponential'):
+    if model_type == 'exponential':
+        return gs.Exponential(dim=3)
+    if model_type == 'spherical':
+        return gs.Spherical(dim=3)
+    if model_type == 'gaussian':
+        return gs.Gaussian(dim=3)
+    return gs.Exponential(dim=3)
+
+
+def force_total_sill(model, total_sill: float):
+    total_sill = float(total_sill)
+    if total_sill <= 0:
+        raise ValueError("total sill must be positive")
+    total_var = float(model.nugget) + float(model.var)
+    if total_var <= 0:
+        model.nugget = 0.0
+        model.var = total_sill
+        return model
+    scale = total_sill / total_var
+    model.nugget *= scale
+    model.var *= scale
+    return model
+
+
+def build_directional_panel_model(base_model, model_type, direction_range):
+    panel_model = build_covariance_model(model_type=model_type)
+    panel_model.nugget = float(base_model.nugget)
+    panel_model.var = float(base_model.var)
+    panel_model.len_scale = float(direction_range)
+    panel_model.anis = list(getattr(base_model, 'anis', [1.0, 1.0]))
+    panel_model.angles = list(getattr(base_model, 'angles', [0.0, 0.0, 0.0]))
+    return panel_model
+
+
 
 
 def estimate_variogram(coords, values, n_lags=10, max_dist=200):
@@ -234,7 +337,7 @@ def estimate_variogram(coords, values, n_lags=10, max_dist=200):
     return bin_center, gamma
 
 
-def fit_variogram_model(bins, gamma, model_type='exponential', nugget=True, max_range=2000):
+def fit_variogram_model(bins, gamma, model_type='exponential', nugget=True, max_range=2000, total_sill=None):
     """Fit a variogram model to experimental data with bounds."""
     if not GSTOOLS_AVAILABLE:
         raise ImportError("gstools required for variography")
@@ -248,10 +351,12 @@ def fit_variogram_model(bins, gamma, model_type='exponential', nugget=True, max_
 
     if len(gamma_clean) < 3:
         logger.warning("Not enough valid variogram points to fit model")
-        model = gs.Exponential(dim=3)
+        model = build_covariance_model(model_type=model_type)
         model.len_scale = 100
         model.nugget = 0.1
         model.var = 0.9
+        if total_sill is not None:
+            model = force_total_sill(model, total_sill)
         return model
 
     # Calculate robust sill estimate from experimental variogram
@@ -259,53 +364,84 @@ def fit_variogram_model(bins, gamma, model_type='exponential', nugget=True, max_
     experimental_sill = np.mean(gamma_clean[-3:]) if len(gamma_clean) >= 3 else np.max(gamma_clean)
 
     # Select model
-    if model_type == 'exponential':
-        model = gs.Exponential(dim=3)
-    elif model_type == 'spherical':
-        model = gs.Spherical(dim=3)
-    elif model_type == 'gaussian':
-        model = gs.Gaussian(dim=3)
-    else:
-        model = gs.Exponential(dim=3)
+    model = build_covariance_model(model_type=model_type)
 
-    # Fit with bounds to prevent unrealistic ranges
+    max_lag = float(np.nanmax(bins_clean))
+
+    # First attempt: library fit
     try:
         model.fit_variogram(bins_clean, gamma_clean, nugget=nugget)
-
-        # Validate and fix parameters
-        # Range check
-        max_lag = np.nanmax(bins_clean)
-        if model.len_scale <= 0 or model.len_scale > max_range or model.len_scale > max_lag * 3:
-            logger.warning(f"Range {model.len_scale:.1f}m invalid, setting to {max_lag/2:.1f}m")
-            model.len_scale = max_lag / 2
-
-        # Nugget check - should be reasonable (0 to ~50% of sill)
-        if model.nugget < 0:
-            model.nugget = 0
-        if model.nugget > experimental_sill * 0.8:
-            logger.warning(f"Nugget {model.nugget:.4f} too high, reducing to 30% of sill")
-            model.nugget = experimental_sill * 0.3
-
-        # Sill check - must be positive and = total variance - nugget
-        if model.var <= 0:
-            model.var = experimental_sill - model.nugget
-        if model.var <= 0:
-            model.var = 0.5  # Default if sill is still invalid
-
-        # Total variance check
-        total_var = model.nugget + model.var
-        if abs(total_var - experimental_sill) > experimental_sill * 0.5:
-            # Recalibrate to match experimental sill
-            scale_factor = experimental_sill / total_var if total_var > 0 else 1.0
-            model.var = model.var * scale_factor
-            model.nugget = model.nugget * scale_factor
-
-        logger.info(f"Fitted {model_type} model: nugget={model.nugget:.4f}, sill={model.var:.4f}, range={model.len_scale:.1f}m")
     except Exception as e:
-        logger.warning(f"Variogram fitting failed: {e}, using robust defaults")
-        model.len_scale = max_lag / 2 if max_lag > 0 else 100
-        model.nugget = experimental_sill * 0.3
-        model.var = experimental_sill * 0.7
+        logger.warning(f"Variogram fitting failed: {e}; using grid-search fallback")
+
+    def _gamma_curve(h, nug, var, rng):
+        h = np.asarray(h, dtype=float)
+        rr = max(float(rng), 1e-6)
+        if model_type == 'spherical':
+            r = h / rr
+            core = np.where(
+                r < 1.0,
+                1.5 * r - 0.5 * (r ** 3),
+                1.0,
+            )
+            return nug + var * core
+        if model_type == 'gaussian':
+            return nug + var * (1.0 - np.exp(-((h / rr) ** 2)))
+        # exponential default
+        return nug + var * (1.0 - np.exp(-(h / rr)))
+
+    # Weighted grid-search tightening to improve match in displayed experimental variograms.
+    low_lag_boost = 1.0 / np.clip(bins_clean / max(max_lag, 1e-6), 0.05, None)
+    weights = low_lag_boost / np.sum(low_lag_boost)
+
+    exp_min = float(np.nanmin(gamma_clean))
+    exp_max = float(np.nanmax(gamma_clean))
+    sill_ref = max(experimental_sill, exp_max, 1e-3)
+
+    nug_grid = np.linspace(0.0, max(exp_min * 1.5, sill_ref * 0.9), 21) if nugget else np.array([0.0])
+    var_grid = np.linspace(max(1e-4, sill_ref * 0.2), max(1e-3, sill_ref * 1.8), 25)
+    r_low = max(max_lag / 8.0, 1.0)
+    r_high = min(max_range, max_lag * 2.5)
+    range_grid = np.linspace(r_low, r_high, 30)
+
+    best = None
+    best_err = float("inf")
+    for nug_val in nug_grid:
+        for var_val in var_grid:
+            for range_val in range_grid:
+                pred = _gamma_curve(bins_clean, nug_val, var_val, range_val)
+                err = float(np.sum(weights * (pred - gamma_clean) ** 2))
+                if err < best_err:
+                    best_err = err
+                    best = (float(nug_val), float(var_val), float(range_val))
+
+    # Prefer tightened solution if it improves the library fit.
+    lib_pred = _gamma_curve(
+        bins_clean,
+        max(float(getattr(model, "nugget", 0.0)), 0.0),
+        max(float(getattr(model, "var", 0.0)), 1e-6),
+        np.clip(float(getattr(model, "len_scale", max_lag / 2 if max_lag > 0 else 100.0)), 1.0, max_range),
+    )
+    lib_err = float(np.sum(weights * (lib_pred - gamma_clean) ** 2))
+
+    if best is not None and best_err <= lib_err * 0.995:
+        model.nugget, model.var, model.len_scale = best
+    else:
+        model.nugget = max(float(getattr(model, "nugget", 0.0)), 0.0)
+        model.var = max(float(getattr(model, "var", 0.0)), 1e-6)
+        model.len_scale = float(np.clip(float(getattr(model, "len_scale", max_lag / 2 if max_lag > 0 else 100.0)), 1.0, max_range))
+
+    # Keep total sill close to experimental asymptote without crushing nugget.
+    total_var = model.nugget + model.var
+    if total_var > 0:
+        scale = sill_ref / total_var
+        if 0.7 <= scale <= 1.3:
+            model.nugget *= scale
+            model.var *= scale
+    if total_sill is not None:
+        model = force_total_sill(model, total_sill)
+
+    logger.info(f"Fitted {model_type} model: nugget={model.nugget:.4f}, sill={model.var:.4f}, range={model.len_scale:.1f}m")
 
     return model
 
@@ -360,6 +496,9 @@ def run(data_path=None, data_dir='data', config=None, output_dir='outputs/figure
     max_dist = 200
     model_type = 'exponential'
     directions = []
+    normalize_total_sill = False
+    target_total_sill = None
+    shared_directional_model = False
 
     max_samples = 2000
     max_pairs = 200000
@@ -371,6 +510,10 @@ def run(data_path=None, data_dir='data', config=None, output_dir='outputs/figure
         directions = vario_config.get('directions', [])
         max_samples = vario_config.get('max_samples', max_samples)
         max_pairs = vario_config.get('max_pairs', max_pairs)
+        normalize_total_sill = bool(vario_config.get('normalize_total_sill', False))
+        shared_directional_model = bool(vario_config.get('shared_directional_model', False))
+        if normalize_total_sill:
+            target_total_sill = float(vario_config.get('total_sill', 1.0))
 
     if len(df) > max_samples:
         df = df.sample(n=max_samples, random_state=42).reset_index(drop=True)
@@ -385,6 +528,8 @@ def run(data_path=None, data_dir='data', config=None, output_dir='outputs/figure
     all_gamma = {}
     all_ranges = {}
     all_counts = {}
+    all_debug = {}
+    all_dir_models = {}
 
     # Check if directional variograms are configured
     if directions:
@@ -402,7 +547,7 @@ def run(data_path=None, data_dir='data', config=None, output_dir='outputs/figure
             if orebody:
                 dip_positive_down = orebody.get('dip_positive_down', True)
 
-            bins, gamma, counts = estimate_directional_variogram(
+            bins, gamma, counts, dbg = estimate_directional_variogram(
                 coords,
                 values,
                 azimuth=azimuth,
@@ -412,16 +557,35 @@ def run(data_path=None, data_dir='data', config=None, output_dir='outputs/figure
                 max_dist=max_dist,
                 max_pairs=max_pairs,
                 dip_positive_down=dip_positive_down,
+                return_debug=True,
             )
+            all_debug[name] = {
+                'azimuth': float(azimuth),
+                'dip': float(dip),
+                'tolerance': float(tolerance),
+                **dbg,
+            }
 
             if len(bins) > 0:
                 all_bins[name] = bins
                 all_gamma[name] = gamma
                 all_counts[name] = counts
+                logger.info(
+                    "    Pair diagnostics: binned=%d, nonzero_lags=%d, angle_accept=%.2f%%",
+                    int(dbg.get('binned_pairs', 0)),
+                    int(dbg.get('nonzero_lags', 0)),
+                    100.0 * float(dbg.get('angle_accepted_pairs', 0)) / max(1.0, float(dbg.get('angle_evaluated_pairs', 0))),
+                )
 
                 # Fit model for this direction to get range
-                dir_model = fit_variogram_model(bins, gamma, model_type=model_type)
+                dir_model = fit_variogram_model(
+                    bins,
+                    gamma,
+                    model_type=model_type,
+                    total_sill=target_total_sill,
+                )
                 all_ranges[name] = dir_model.len_scale
+                all_dir_models[name] = dir_model
                 logger.info(f"    Range: {dir_model.len_scale:.1f}m, nugget={dir_model.nugget:.4f}, sill={dir_model.var:.4f}")
 
     # Always compute omnidirectional as fallback/comparison
@@ -454,14 +618,24 @@ def run(data_path=None, data_dir='data', config=None, output_dir='outputs/figure
 
         ranges_list = [r for r in [strike_range, dip_range, normal_range] if r]
         if len(ranges_list) < 2:
-            fitted_model = fit_variogram_model(omni_bins, omni_gamma, model_type=model_type)
+            fitted_model = fit_variogram_model(
+                omni_bins,
+                omni_gamma,
+                model_type=model_type,
+                total_sill=target_total_sill,
+            )
             logger.info("Insufficient directional ranges; using omnidirectional variogram model")
         else:
             major_range = max(ranges_list)
             anis_y = strike_range / dip_range if strike_range and dip_range else 1.0
             anis_z = strike_range / normal_range if strike_range and normal_range else 1.0
 
-            fitted_model = fit_variogram_model(omni_bins, omni_gamma, model_type=model_type)
+            fitted_model = fit_variogram_model(
+                omni_bins,
+                omni_gamma,
+                model_type=model_type,
+                total_sill=target_total_sill,
+            )
             fitted_model.len_scale = major_range
             fitted_model.anis = [anis_y, anis_z]
 
@@ -494,8 +668,33 @@ def run(data_path=None, data_dir='data', config=None, output_dir='outputs/figure
                 f"{major_range:.1f}", anis_y, anis_z
             )
     else:
-        fitted_model = fit_variogram_model(omni_bins, omni_gamma, model_type=model_type)
+        fitted_model = fit_variogram_model(
+            omni_bins,
+            omni_gamma,
+            model_type=model_type,
+            total_sill=target_total_sill,
+        )
         logger.info("Using omnidirectional variogram model")
+
+    if target_total_sill is not None:
+        fitted_model = force_total_sill(fitted_model, target_total_sill)
+
+    panel_models = {}
+    if shared_directional_model:
+        directional_ranges = {}
+        if config and 'variogram' in config:
+            ranges_cfg = config['variogram'].get('anisotropy', {}).get('ranges_m', {})
+            directional_ranges = {
+                'along_strike': ranges_cfg.get('strike'),
+                'strike': ranges_cfg.get('strike'),
+                'down_dip': ranges_cfg.get('down_dip'),
+                'normal_to_plane': ranges_cfg.get('normal'),
+                'across_strike': ranges_cfg.get('normal'),
+            }
+        for name, direction_range in all_ranges.items():
+            use_range = directional_ranges.get(name) or direction_range
+            if use_range:
+                panel_models[name] = build_directional_panel_model(fitted_model, model_type, use_range)
 
     # Plot all directions
     os.makedirs(output_dir, exist_ok=True)
@@ -518,10 +717,12 @@ def run(data_path=None, data_dir='data', config=None, output_dir='outputs/figure
             valid = ~np.isnan(gamma) & ~np.isinf(gamma) & (gamma > 0)
             ax.plot(bins[valid], gamma[valid], 'ok', markersize=5, label='Experimental')
 
-            # Plot model
+            # Use a shared final nugget/sill treatment when requested so the
+            # directional panels only differ by geometry and range.
+            panel_model = panel_models.get(name) or all_dir_models.get(name, fitted_model)
             x_max = bins[valid].max() if valid.any() else max_dist
             x_fit = np.linspace(0.1, x_max, 100)
-            y_fit = fitted_model.nugget + fitted_model.var * (1 - fitted_model.cor(x_fit / fitted_model.len_scale))
+            y_fit = panel_model.nugget + panel_model.var * (1 - panel_model.cor(x_fit / panel_model.len_scale))
             ax.plot(x_fit, y_fit, 'b-', linewidth=2, label='Model')
 
             ax.set_xlabel('Distance (m)')
@@ -577,18 +778,29 @@ def run(data_path=None, data_dir='data', config=None, output_dir='outputs/figure
         fitted_model.nugget *= scale
 
     fitted_model = apply_variogram_tuning(fitted_model, config)
+    if target_total_sill is not None:
+        fitted_model = force_total_sill(fitted_model, target_total_sill)
 
-    logger.info(f"Final variogram: nugget={fitted_model.nugget:.4f}, sill={fitted_model.var:.4f}, range={fitted_model.len_scale:.1f}m")
+    logger.info(
+        "Final variogram: nugget=%.4f, sill=%.4f, total_sill=%.4f, range=%.1fm",
+        fitted_model.nugget,
+        fitted_model.var,
+        fitted_model.nugget + fitted_model.var,
+        fitted_model.len_scale,
+    )
 
     # Persist model parameters for paper tables
     model_meta = {
         'model_type': model_type,
         'nugget': float(fitted_model.nugget),
         'sill': float(fitted_model.var),
+        'total_sill': float(fitted_model.nugget + fitted_model.var),
         'len_scale': float(fitted_model.len_scale),
         'anis': [float(v) for v in getattr(fitted_model, 'anis', [1.0, 1.0])],
         'angles': [float(v) for v in getattr(fitted_model, 'angles', [0.0, 0.0, 0.0])],
-        'direction_ranges': {k: float(v) for k, v in all_ranges.items()}
+        'direction_ranges': {k: float(v) for k, v in all_ranges.items()},
+        'shared_directional_model': bool(shared_directional_model),
+        'nested_structures': ((config or {}).get('variogram', {}) or {}).get('nested_structures', {}),
     }
     os.makedirs(output_dir, exist_ok=True)
     with open(os.path.join(output_dir, 'variogram_model.json'), 'w') as f:
@@ -597,13 +809,63 @@ def run(data_path=None, data_dir='data', config=None, output_dir='outputs/figure
 
     # Save pair counts per direction
     if all_counts:
-        import csv
         with open(os.path.join(output_dir, 'variogram_pair_counts.csv'), 'w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(['direction', 'lag', 'count'])
             for name, counts in all_counts.items():
                 for i, count in enumerate(counts):
                     writer.writerow([name, i + 1, int(count)])
+
+    if all_debug:
+        debug_path = os.path.join(output_dir, 'variogram_direction_debug.csv')
+        with open(debug_path, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                'direction', 'azimuth_deg', 'dip_deg', 'tolerance_deg',
+                'n_points', 'possible_pairs', 'target_pairs',
+                'attempts', 'non_self_pairs', 'distance_filtered_pairs',
+                'angle_evaluated_pairs', 'angle_accepted_pairs', 'binned_pairs',
+                'nonzero_lags', 'total_lag_pairs',
+                'angle_acceptance_pct', 'binned_from_angle_pct',
+            ])
+            for name, dbg in all_debug.items():
+                angle_eval = float(dbg.get('angle_evaluated_pairs', 0))
+                angle_ok = float(dbg.get('angle_accepted_pairs', 0))
+                binned = float(dbg.get('binned_pairs', 0))
+                writer.writerow([
+                    name, dbg.get('azimuth'), dbg.get('dip'), dbg.get('tolerance'),
+                    dbg.get('n_points'), dbg.get('possible_pairs'), dbg.get('target_pairs'),
+                    dbg.get('attempts'), dbg.get('non_self_pairs'), dbg.get('distance_filtered_pairs'),
+                    dbg.get('angle_evaluated_pairs'), dbg.get('angle_accepted_pairs'), dbg.get('binned_pairs'),
+                    dbg.get('nonzero_lags'), dbg.get('total_lag_pairs'),
+                    100.0 * angle_ok / max(1.0, angle_eval),
+                    100.0 * binned / max(1.0, angle_ok),
+                ])
+        logger.info("Saved directional debug summary: %s", debug_path)
+
+        lag_occ_path = os.path.join(output_dir, 'variogram_lag_occupancy.csv')
+        with open(lag_occ_path, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['direction', 'lag', 'count', 'pct_of_direction_pairs'])
+            for name, counts in all_counts.items():
+                total = float(np.sum(counts))
+                for i, count in enumerate(counts):
+                    writer.writerow([name, i + 1, int(count), 100.0 * float(count) / max(1.0, total)])
+        logger.info("Saved lag occupancy diagnostics: %s", lag_occ_path)
+
+        angle_hist_path = os.path.join(output_dir, 'variogram_angle_histogram.csv')
+        with open(angle_hist_path, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['direction', 'angle_bin_start_deg', 'angle_bin_end_deg', 'count', 'pct_of_angle_evaluated'])
+            for name, dbg in all_debug.items():
+                bins = dbg.get('angle_hist_bins_deg', [])
+                counts = dbg.get('angle_hist_counts', [])
+                total = float(sum(counts))
+                if len(bins) < 2:
+                    continue
+                for i, count in enumerate(counts):
+                    writer.writerow([name, bins[i], bins[i + 1], int(count), 100.0 * float(count) / max(1.0, total)])
+        logger.info("Saved angle histogram diagnostics: %s", angle_hist_path)
 
     # Return model in a format compatible with SGS
     return fitted_model, {'bins': all_bins, 'gamma': all_gamma}, ranges

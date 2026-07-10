@@ -1,226 +1,62 @@
-# Tables for Graphite SGS Paper
+# Tables (Source-of-Truth Generated)
 
-## Table 1: GRSC Statistics from Current Run (`outputs/declustered.csv`, lith_code = GRSC)
+## Table 1. Data and Processing Audit
 
-| Statistic | Value | Units |
-|-----------|-------|-------|
-| Number of Composites | 1,790 | count |
-| Mean TGC | 3.97 | % |
-| Standard Deviation | 2.24 | % |
-| Variance | 5.02 | %^2 |
-| Coefficient of Variation | 0.56 | dimensionless |
-| Minimum | 0.05 | % |
-| Maximum | 14.67 | % |
-| Median | 3.51 | % |
-| 25th Percentile | 2.31 | % |
-| 75th Percentile | 5.25 | % |
+| Processing stage | Holes | Records | Meters | Purpose |
+|---|---:|---:|---:|---|
+| Drillhole policy | 100 used; 100 validated | - | - | Study scope. |
+| Raw assays | 100 | 3,350 | 7902.37 | TGC source. |
+| Lithology logs | 100 | 1,248 | 9416.90 | Geology source. |
+| Desurveyed assays | 100 | 3,350 | 7902.37 | XYZ support. |
+| 2 m composites | 100 | 4,129 | 7957.70 | Composite support. |
+| Domain composites | 100 | 4,129 | 7957.70 | SGS input: 3,566/382/181. |
+| Geological domains | 100 | 3,566 fresh graphitic; 382 weathered graphitic; 181 host/waste | - | Graphitic-only weathering contrast and host/waste control. |
+| Online Resource 2 | - | 11 worksheets | - | Audit-level run metadata, validation, variogram, convergence, support, contact, occupancy and repeated-null summaries. |
 
-## Table 2: Declustering Summary (Combined Simulation Domain)
+## Table 2. Domain and Grade Summary
 
-| Parameter | Value | Units |
-|-----------|-------|-------|
-| Method | Cell Declustering | - |
-| Cell Size X | 200 | m |
-| Cell Size Y | 200 | m |
-| Cell Size Z | 5 | m |
-| Raw Mean | 4.37 | % TGC |
-| Declustered Mean | 4.06 | % TGC |
-| Declustering Ratio | 0.93 | dimensionless |
-| Minimum Weight | 0.12 | dimensionless |
-| Maximum Weight | 3.36 | dimensionless |
-| Average Weight | 1.00 | dimensionless |
+| Group | n | Mean TGC (%) | Median TGC (%) | Standard deviation (%) | Composites at or above 3% (%) | Basis |
+|---|---:|---:|---:|---:|---:|---|
+| fresh graphitic domain | 3566 | 4.212 | 3.910 | 2.231 | 65.90 | 2 m composites |
+| host/waste domain | 181 | 1.026 | 0.510 | 1.492 | 6.08 | 2 m composites |
+| weathered graphitic domain | 382 | 4.801 | 4.635 | 2.573 | 73.04 | 2 m composites |
 
-## Table 3: Variogram Parameters (Normal-Score Domain)
+## Table 3. Simulation and Variogram Configuration
 
-| Parameter | Along Strike | Down Dip | Normal to Plane | Units |
-|-----------|--------------|----------|-----------------|-------|
-| Azimuth | 105 | 15 | 195 | degrees |
-| Dip | 0 | 32 | 58 | degrees |
-| Nugget (C0) | 0.24 | 0.24 | 0.24 | dimensionless |
-| Structured Sill (C) | 0.96 | 0.96 | 0.96 | dimensionless |
-| Total Sill (C0 + C) | 1.20 | 1.20 | 1.20 | dimensionless |
-| Range (a) | 237.5 | 188.5 | 112.5 | m |
-| Nugget Ratio | 0.2 | 0.2 | 0.2 | dimensionless |
-| Model Type | Exponential | Exponential | Exponential | - |
-## Table 4: Grid Definition
+| Item | Value |
+|---|---|
+| Simulation and reporting support | 25 x 25 x 2 m simulation; 50 x 50 x 2 m reporting |
+| Ensemble | 100 realisations; seed 1337 |
+| Local estimator | simple-kriging-style conditional estimator in domain-wise normal-score space; Online Resource 2 reports the implemented estimator and retains the legacy configured label only as provenance |
+| Categorical domains | fresh graphitic, weathered graphitic and host/waste; local inverse-distance class scores in a 250/200/20 m ellipsoid, maximum 20 neighbours, prior weight 2.0; seed rule 1337 + realisation index |
+| Geological threshold and top cut | 3% TGC is a screening threshold (composite Q25 2.358%, median 3.849%); no top cut applied, with 99.5th-percentile sensitivity affecting 19 composites |
+| Boundary treatment | categorical domains vary between realisations but are hard for grade conditioning within each paired realisation |
+| Structural axes and search | strike 000/180 degrees; down dip 090 degrees at 30 degrees; normal 270 degrees; radii 250/200/20 m |
+| Grade neighbourhood | fixed minimum/maximum 3/20; simulated nodes enter the conditioning search |
+| Variogram | exponential; range parameter 250 m; nugget 0.20; structured sill 0.80; 50 m lags, 10 lags, 500 m maximum distance and 22.5 degrees tolerance |
+| Declustering | 200 x 200 x 5 m cells; 100/200/300 m XY cells at 5 m Z give all-composite means 3.936/3.794/3.800% TGC; graphitic-only means 4.070/3.921/3.926% TGC. |
+| Numerical mean check | data 4.127% TGC; whole reporting-support SGS 2.056%; graphitic-probability >=0.70 cells 3.704%; host-probability >=0.70 cells 1.134% |
+| Validation scope | histogram/Q-Q, support-matched swaths, variogram envelopes, ensemble stability, hole-grouped categorical reliability/confusion, 20-versus-20 null sensitivity, null-realisation bootstrap and withheld-composite baselines; no independent blocked rerun of the final SGS ensemble |
 
-| Parameter | Value | Units |
-|-----------|-------|-------|
-| Coordinate System | UTM Zone 37S | - |
-| EPSG Code | 32737 | - |
-| Origin X | 475,500 | m |
-| Origin Y | 9,465,400 | m |
-| Origin Z | 570 | m |
-| Number of Cells (NX) | 13 | - |
-| Number of Cells (NY) | 46 | - |
-| Number of Cells (NZ) | 27 | - |
-| Cell Size (DX) | 100 | m |
-| Cell Size (DY) | 100 | m |
-| Cell Size (DZ) | 10 | m |
-| Total Cells | 16,146 | - |
-| X Extent | 1,200 | m |
-| Y Extent | 4,500 | m |
-| Z Extent | 260 | m |
+## Table 4. Validation and Information-Content Comparison
 
-## Table 5: Simulation Parameters
+| Validation axis | Geology-conditioned evidence | Null or reference comparison | Supported interpretation |
+|---|---|---|---|
+| Archive-derived reporting support | 55,716 common 25 x 25 x 2 m blocks; fractional lode volume 4.313% | any-intersection 19,286 reporting cells; full-cell core 8,938 cells | Support sensitivity only; the seven-lode mask shares project data and is not independent validation |
+| Support-aligned ensemble means | full box 2.056%; any lode cell 3.783%; fractional lode volume 3.829%; core 3.903% TGC | declustered graphitic composites 3.921% TGC | The apparent full-grid deficit is a reporting-support difference, not direct local validation |
+| Envelope ensemble stability | n=75 probability MAE 0.018; probability r 0.995; spread r 0.942 | 100-realisation envelope reference | Numerical stability at selected reporting support, not predictive calibration |
+| Variogram and envelope-aligned swaths | matched-space variogram weighted RMSE 0.237; graphitic-composite versus envelope P50 swath r 0.777/0.823/0.840 | pair-limited thickness-normal direction retained as caveat | Tests covariance and directional behaviour on matched reporting support |
+| Categorical sensitivity | macro-F1 0.356; balanced accuracy 0.442; graphitic-host ROC-AUC 0.708; raw Brier skill -4.896 | grouped whole-hole folds with zero leakage | Raw categorical products are secondary sensitivity diagnostics, not calibrated reporting boundaries |
+| Full-grid null sensitivity | canonical histogram overlap 0.602; Q-Q RMSE 2.144 | five independent no-domain seed families in Online Resource 2 | Global fit and support-aligned interpretation remain separate evaluation axes |
+| Withheld grade baselines | 500 m block/leave-hole/leave-section RMSE 2.261/2.179/2.232% TGC | simple spatial estimators under held-out support | Bounds local prediction; no blocked rerun of final SGS is claimed |
 
-| Parameter | Value | Units |
-|-----------|-------|-------|
-| Number of Realizations | 200 | count |
-| Random Seed | 1337 | - |
-| Kriging Type | Ordinary Kriging | - |
-| Search Neighborhood | Anisotropic local ellipsoid (250 x 120 x 70 m) | - |
-| Minimum Neighbors | 8 | count |
-| Maximum Neighbors | 24 | count |
-| Anisotropy (Major/Minor) | 3.60 | dimensionless |
-| Anisotropy (Major/Intermediate) | 2.25 | dimensionless |
-## Table 6: Methodological Pilot-Screen Scenario Tonnage (Non-Resource)
+## Table 5. Practical Decision-Use Matrix for Graphite Exploration and Resource Evaluation
 
-| Cutoff (% TGC) | P10 Tonnage (Mt) | P50 Tonnage (Mt) | P90 Tonnage (Mt) | P50 Grade (% TGC) | P50 Contained (kt) |
-|---|---|---|---|---|---|
-| 0 | 215.79 | 215.79 | 215.79 | 4.86 | 10488 |
-| 1 | 215.79 | 215.79 | 215.79 | 4.86 | 10488 |
-| 2 | 215.59 | 215.68 | 215.74 | 4.86 | 10486 |
-| 3 | 209.52 | 210.53 | 211.18 | 4.91 | 10342 |
-| 4 | 162.20 | 165.39 | 168.57 | 5.28 | 8722 |
-| 5 | 84.14 | 87.81 | 91.25 | 5.96 | 5230 |
-| 6 | 30.00 | 32.46 | 34.57 | 6.85 | 2222 |
-| 7 | 8.73 | 10.02 | 11.14 | 7.74 | 777 |
-| 8 | 2.30 | 2.78 | 3.26 | 8.66 | 241 |
-| 9 | 0.29 | 0.44 | 0.60 | 9.61 | 42 |
-| 10 | 0.05 | 0.11 | 0.17 | 10.54 | 11 |
-## Table 7: Internal Validation Metrics (Baseline vs Final)
-
-| Metric | Baseline | Final | Source |
-|--------|----------|-------|--------|
-| Mean sim grade (%) | 3.9218 | 4.8532 | `validation_metrics_pre.json` / `validation_metrics.json` |
-| Sim std (%) | 2.3014 | 1.1513 | `validation_metrics_pre.json` / `validation_metrics.json` |
-| Histogram overlap | 0.5599 | 0.9789 | `validation_metrics_pre.json` / `validation_metrics.json` |
-| Q-Q RMSE | 1.4987 | 0.0760 | `validation_metrics_pre.json` / `validation_metrics.json` |
-| Swath corr X | 0.6308 | 0.5844 | `validation_metrics_pre.json` / `validation_metrics.json` |
-| Swath corr Y | 0.5585 | 0.6229 | `validation_metrics_pre.json` / `validation_metrics.json` |
-| Swath corr Z | 0.4038 | 0.4123 | `validation_metrics_pre.json` / `validation_metrics.json` |
-| Swath coverage (P10-P90, %) | 100.00 | 87.33 | `validation_metrics_pre.json` / `validation_metrics.json` |
-
-## Table 8: Interim Random-Fold Cross-Validation Check (Internal, Non-Spatial)
-
-| CV Scenario | Source file | Samples (n) | Folds | ME | MAE | RMSE | RMSE / Std(data) |
-|-------------|-------------|-------------|-------|----|-----|------|------------------|
-| Blocked CV (primary) | `cross_validation_blocked_300.json` | 300 | 5 | -0.1859 | 2.0674 | 2.6153 | 2.28 |
-| Base CV | `cross_validation_300.json` | 300 | 5 | -0.0661 | 1.7358 | 2.2823 | 1.99 |
-| Robustness CV | `cross_validation_600.json` | 600 | 5 | 0.0408 | 1.5430 | 2.1272 | 1.85 |
-
-Note: Blocked CV uses XY spatial blocks (500 m) and is treated as primary predictive evidence; random-fold rows are secondary diagnostics.
-
-## Table 9: Variogram Pair Counts by Lag
-
-| Direction | Lag | Pair Count |
-|-----------|-----|------------|
-| along_strike | 1 | 274 |
-| along_strike | 2 | 824 |
-| along_strike | 3 | 1524 |
-| along_strike | 4 | 2436 |
-| along_strike | 5 | 2812 |
-| along_strike | 6 | 1152 |
-| along_strike | 7 | 1448 |
-| along_strike | 8 | 2796 |
-| along_strike | 9 | 1736 |
-| along_strike | 10 | 834 |
-| down_dip | 1 | 200 |
-| down_dip | 2 | 548 |
-| down_dip | 3 | 1336 |
-| down_dip | 4 | 1050 |
-| down_dip | 5 | 784 |
-| down_dip | 6 | 818 |
-| down_dip | 7 | 1386 |
-| down_dip | 8 | 300 |
-| down_dip | 9 | 458 |
-| down_dip | 10 | 62 |
-| normal_to_plane | 1 | 26 |
-| normal_to_plane | 2 | 160 |
-| normal_to_plane | 3 | 174 |
-| normal_to_plane | 4 | 10 |
-| normal_to_plane | 5 | 6 |
-| normal_to_plane | 6 | 0 |
-| normal_to_plane | 7 | 0 |
-| normal_to_plane | 8 | 0 |
-| normal_to_plane | 9 | 0 |
-| normal_to_plane | 10 | 0 |
-
-Note: For directional model reliability, at least ~30 pairs per lag is a practical minimum rule-of-thumb. The normal-to-plane direction does not meet this at most lags.
-
-## Table 10: Trend Diagnostics (Declustered Domain)
-
-| Metric | Value |
-|--------|-------|
-| Samples (n) | 3506 |
-| Trend intercept (beta0) | 0.0455633 |
-| Trend slope in z (beta1) | 0.00602013 |
-| Raw grade-vs-z slope | 0.00602013 |
-| Residual slope after detrending | 1.04e-18 |
-| Trend R^2 | 0.0117 |
-
-## Table 11: Compositing Support Sensitivity (Combined Simulation Domain)
-
-| Composite length (m) | Composites (n) | Mean TGC (%) | Std TGC (%) | Median TGC (%) |
-|----------------------|----------------|--------------|-------------|----------------|
-| 1.0 | 6815 | 4.3752 | 2.3477 | 4.04 |
-| 2.0 | 3506 | 4.3701 | 2.3017 | 4.04 |
-| 3.0 | 2395 | 4.3752 | 2.2254 | 4.07 |
-
-## Table 12: Trend/Stationarity Reconciliation
-
-| Metric | Value | Source |
-|--------|-------|--------|
-| Trend model slope in z | 0.00602013 | `trend_diagnostics.json` |
-| Stationarity check slope in z | 0.00578190 | `stationarity_trends.json` |
-| Difference | 0.00023823 | computed |
-| Reconciliation note | Different fitting datasets/targets | `trend_stationarity_reconciliation.json` |
-
-## Table 13: Reproducibility Manifest for Reported Outputs
-
-| Item | Primary source file(s) |
-|------|------------------------|
-| Table 6 risk screening (scenario-scaled) | `risked_tonnage.csv` |
-| Table 7 internal validation diagnostics | `validation_metrics_pre.json`; `validation_metrics.json` |
-| Table 8 cross-validation | `cross_validation_300.json`; `cross_validation_600.json` |
-| Table 8 blocked cross-validation | `cross_validation_blocked_300.json` |
-| Table 9 pair counts | `variogram_pair_counts.csv` |
-| Table 10 trend diagnostics | `trend_diagnostics.json` |
-| Table 12 trend/stationarity reconciliation | `stationarity_trends.json`; `trend_stationarity_reconciliation.json` |
-| Table 14 internal continuity check | `validation_metrics_pre.json`; `validation_metrics.json` |
-| Table 15 normal-range sensitivity | `outputs/tables/normal_range_sensitivity.csv` |
-| Table 16 variogram reproduction check | `outputs/tables/variogram_reproduction_summary.json`; `outputs/tables/variogram_reproduction_lag.csv` |
-| Figure 1 variogram | `outputs/figures/variogram.png`; `outputs/figures/variogram_model.json` |
-| Figures 2-4 validation plots | `outputs/figures/histogram_validation.png`; `outputs/figures/qq_plot.png`; `outputs/figures/swath_x.png`; `outputs/figures/swath_y.png`; `outputs/figures/swath_z.png` |
-| Figure 5 trend plot | `outputs/figures/trend_diagnostic.png` |
-| Figure 6 support histogram | `outputs/figures/composite_length_hist.png` |
-
-## Table 14: Internal Continuity Check (Baseline vs Final)
-
-| Metric | Baseline | Final | Delta (Final-Baseline) | Source |
-|--------|----------|-------|------------------------|--------|
-| Swath corr X | 0.6308 | 0.5844 | -0.0464 | `validation_metrics_pre.json`; `validation_metrics.json` |
-| Swath corr Y | 0.5585 | 0.6229 | +0.0644 | `validation_metrics_pre.json`; `validation_metrics.json` |
-| Swath corr Z | 0.4038 | 0.4123 | +0.0085 | `validation_metrics_pre.json`; `validation_metrics.json` |
-
-Note: This table is a minimal internal continuity check to show swath-correlation changes are limited in magnitude.
-
-## Table 15: Normal-Range Sensitivity (Configured Anisotropy)
-
-| Scenario | Configured normal range (m) | Major/normal anisotropy ratio | Z-swath corr | Mean cell P(grade >3%) | P50 tonnage at 3% cutoff (Mt) | Source |
-|----------|------------------------------|--------------------------------|--------------|-------------------------|-------------------------------|--------|
-| Best-fit base | 70 | 5.1 | 0.4123 | 0.9752 | 210.53 | `outputs/tables/validation_metrics.json`; `outputs/tables/risked_tonnage.csv`; `outputs/grids/prob_gt_3.0.npy` |
-| Sensitivity A | 60 | 6.0 | 0.3878 | 0.9752 | 210.48 | `outputs/tables/normal_range_sensitivity.csv` |
-| Sensitivity B | 150 | 2.4 | 0.4085 | 0.9752 | 210.51 | `outputs/tables/normal_range_sensitivity.csv` |
-
-Note: Normal-direction pair support is weak (Table 9), so this table is used to bound interpretation sensitivity rather than claim robust normal-direction continuity.
-
-## Table 16: Variogram Reproduction Check (Target vs Realization Ensemble, Grade Space)
-
-| Direction | Valid lags used | Gamma RMSE | Gamma MAE | Source |
-|-----------|-----------------|------------|-----------|--------|
-| along_strike | 8 | 1.109 | 0.889 | `outputs/tables/variogram_reproduction_summary.json` |
-| down_dip | 9 | 0.839 | 0.699 | `outputs/tables/variogram_reproduction_summary.json` |
-
-Note: This check is a pilot-support grade-space proxy; shortest lag behavior is constrained by 100 m block support and reduced short-distance pair availability in the simulated grid (`variogram_reproduction_lag.csv`).
+| Product | Geological meaning | Validation support | Appropriate use |
+|---|---|---|---|
+| Archive-derived lode envelope | Common reporting support for the interpreted graphitic corridor | Exact grid alignment, common-footprint and DEM-surface checks | Compare completed SGS summaries inside versus outside the project-derived envelope |
+| Envelope-weighted P50 TGC | Central conditional grade behaviour inside the selected support | Completed ensemble and support-sensitivity brackets | Compare broad graphitic-support sections; not a local grade prediction |
+| P90-P10 TGC spread | Conditional grade range within the selected support | Envelope convergence, variogram reproduction and directional swaths | Identify relative grade-uncertainty zones for geological follow-up |
+| P(TGC > 3%) | Modelled above-threshold occupancy inside the envelope | Completed ensemble and support-aligned maps | Compare relative persistence of modelled above-threshold support |
+| Raw categorical frequencies and entropy | Sensitivity of the local categorical scoring rule | Grouped categorical validation in Online Resource 2 | Audit relative model ambiguity only; do not treat as calibrated boundary probability |
+| Geology-blind null sensitivity | Global-distribution behaviour under a composite alternate configuration | Five independent 20-realisation families | Prevent model choice from relying only on histogram or Q-Q fit |

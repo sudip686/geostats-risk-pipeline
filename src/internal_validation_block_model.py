@@ -5,6 +5,7 @@ import json
 import sys
 from datetime import datetime
 from pathlib import Path
+from zipfile import ZipFile
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -19,6 +20,8 @@ from src.postprocess_risk import calculate_tonnage_curve
 
 
 DEFAULT_MODEL = ROOT / "Tanga_MRE_2026-01-06 1" / "OneDrive_2026-01-06" / "Export Final" / "04 BM" / "CSV" / "MODEL_OK.csv"
+DEFAULT_MODEL_ZIP = ROOT / "internal" / "Tanga_MRE_2026-01-06 1 (1).zip"
+DEFAULT_MODEL_MEMBER = "OneDrive_2026-01-06/Export Final/04 BM/CSV/MODEL_OK.csv"
 
 
 def load_cfg(config_path: Path) -> dict:
@@ -38,7 +41,24 @@ def infer_spacing(values: np.ndarray, fallback: float) -> float:
 
 
 def load_model_blocks(model_csv: Path) -> pd.DataFrame:
-    df = pd.read_csv(model_csv, low_memory=False)
+    if model_csv.exists():
+        df = pd.read_csv(model_csv, low_memory=False)
+    elif DEFAULT_MODEL_ZIP.exists():
+        with ZipFile(DEFAULT_MODEL_ZIP) as zf:
+            member = DEFAULT_MODEL_MEMBER
+            if member not in zf.namelist():
+                matches = [name for name in zf.namelist() if name.upper().endswith("/MODEL_OK.CSV") or name.upper() == "MODEL_OK.CSV"]
+                if not matches:
+                    raise FileNotFoundError(
+                        f"MODEL_OK.csv not found at {model_csv} and no matching member found in {DEFAULT_MODEL_ZIP}"
+                    )
+                member = matches[0]
+            with zf.open(member) as fh:
+                df = pd.read_csv(fh, low_memory=False)
+    else:
+        raise FileNotFoundError(
+            f"MODEL_OK.csv not found at {model_csv} and fallback zip is missing: {DEFAULT_MODEL_ZIP}"
+        )
     cols = {c.upper(): c for c in df.columns}
     required = ["X", "Y", "Z", "TGC_%"]
     missing = [c for c in required if c not in cols]
@@ -325,6 +345,9 @@ def write_internal_report(path: Path, summary: dict) -> None:
 
 def run(model_csv: Path, outputs_dir: Path, config_path: Path) -> None:
     cfg = load_cfg(config_path)
+    grade_field = cfg.get("grade_field", "tgc_pct")
+    data_dir_cfg = cfg.get("data_dir", "data")
+    data_dir = Path(data_dir_cfg) if Path(data_dir_cfg).is_absolute() else (ROOT / data_dir_cfg)
     density_default = float(cfg.get("density_t_per_m3", 2.43))
     out_dir = outputs_dir / "internal_validation"
     fig_dir = out_dir / "figures"
@@ -373,7 +396,7 @@ def run(model_csv: Path, outputs_dir: Path, config_path: Path) -> None:
         swath_metrics[axis_name] = m
 
     cutoffs = np.arange(0.0, 21.0, 1.0)
-    sgs_curve = calculate_tonnage_curve(
+    sgs_curve, _ = calculate_tonnage_curve(
         reals,
         cutoffs=cutoffs,
         volume_per_block=float(meta["dx"] * meta["dy"] * meta["dz"]),
@@ -428,10 +451,16 @@ def run(model_csv: Path, outputs_dir: Path, config_path: Path) -> None:
     c3 = comp.loc[comp["cutoff"] == 3.0].iloc[0]
 
     # Distribution-level comparisons against assay/domain/model/sgs.
-    assay = pd.read_csv(ROOT / "data" / "assay.csv")
-    assay_vals = pd.to_numeric(assay.get("tgc_pct"), errors="coerce").to_numpy()
+    assay = pd.read_csv(data_dir / "assay.csv")
+    assay_series = assay.get(grade_field, assay.get("tgc_pct"))
+    if assay_series is None:
+        raise ValueError(f"Assay data missing configured grade field '{grade_field}'")
+    assay_vals = pd.to_numeric(assay_series, errors="coerce").to_numpy()
     domain = pd.read_csv(outputs_dir / "domain_data.csv")
-    domain_vals = pd.to_numeric(domain.get("tgc_pct"), errors="coerce").to_numpy()
+    domain_series = domain.get(grade_field, domain.get("tgc_pct"))
+    if domain_series is None:
+        raise ValueError(f"Domain data missing configured grade field '{grade_field}'")
+    domain_vals = pd.to_numeric(domain_series, errors="coerce").to_numpy()
     sgs_vals = np.asarray(sgs_p50_grid, dtype=float).ravel()
     model_vals = model_clip["grade"].to_numpy(dtype=float)
 
@@ -502,7 +531,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Internal validation: MODEL_OK vs SGS")
     parser.add_argument("--model-csv", type=Path, default=DEFAULT_MODEL, help="Path to MODEL_OK.csv")
     parser.add_argument("--outputs-dir", type=Path, default=ROOT / "outputs", help="Outputs directory root")
-    parser.add_argument("--config", type=Path, default=ROOT / "config" / "project_best_fit.yaml", help="Config file")
+    parser.add_argument("--config", type=Path, default=ROOT / "config" / "main_config.yaml", help="Config file")
     args = parser.parse_args()
 
     run(model_csv=args.model_csv, outputs_dir=args.outputs_dir, config_path=args.config)

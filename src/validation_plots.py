@@ -7,12 +7,23 @@ Generates:
 - QQ plot (optional)
 """
 
+import json
+import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import logging
 
 logger = logging.getLogger(__name__)
+
+def _ensure_plot_grade_column(df, grade_field='tgc_pct'):
+    if 'tgc_pct' in df.columns:
+        return df
+    if grade_field in df.columns:
+        out = df.copy()
+        out['tgc_pct'] = pd.to_numeric(out[grade_field], errors='coerce')
+        return out
+    raise ValueError(f"Validation data missing grade column: expected 'tgc_pct' or '{grade_field}'")
 
 
 def create_swath_plot(realizations, data_df, grid_def, output_path, axis=0):
@@ -283,7 +294,7 @@ def load_validation_data(data_path, data_dir, config):
         ref_path = config.get('calibration', {}).get('reference_data', ref_path)
 
     if ref_path:
-        df = pd.read_csv(ref_path)
+        df = pd.read_csv(ref_path, low_memory=False)
         col_map = validation_cfg.get('reference_columns', {})
         if config and config.get('calibration', {}).get('enabled'):
             col_map = config.get('calibration', {}).get('reference_columns', col_map)
@@ -317,11 +328,62 @@ def load_validation_data(data_path, data_dir, config):
 def load_swath_data(data_dir='data', config=None):
     """Load swath validation data from composites/domains."""
     from .domains import run as run_domains
-    data_df, _ = run_domains(data_dir=data_dir, target_lith_codes=config.get('target_lith_codes') if config else None)
+    grade_field = config.get('grade_field', 'tgc_pct') if config else 'tgc_pct'
+    data_df, _ = run_domains(
+        data_dir=data_dir,
+        target_lith_codes=config.get('target_lith_codes') if config else None,
+        grade_field=grade_field,
+    )
     return data_df
 
 
-def run(realizations_path=None, data_path=None, data_dir='data', output_dir='outputs/figures', cutoff=3.0, config=None):
+def _grid_def_from_meta(meta_path):
+    with open(meta_path, 'r', encoding='utf-8') as f:
+        grid_meta = json.load(f)
+    return {
+        'x': grid_meta['x_min'] + np.arange(int(grid_meta['nx'])) * float(grid_meta['dx']),
+        'y': grid_meta['y_min'] + np.arange(int(grid_meta['ny'])) * float(grid_meta['dy']),
+        'z': grid_meta['z_min'] + np.arange(int(grid_meta['nz'])) * float(grid_meta['dz']),
+        'dx': float(grid_meta['dx']),
+        'dy': float(grid_meta['dy']),
+        'dz': float(grid_meta['dz']),
+    }
+
+
+def _resolve_validation_support(grids_dir, config=None, mode='auto'):
+    reporting_reals = os.path.join(grids_dir, 'sgs_reals_reporting.npy')
+    reporting_meta = os.path.join(grids_dir, 'sgs_reporting_meta.json')
+    sim_reals = os.path.join(grids_dir, 'sgs_reals.npy')
+    sim_meta = os.path.join(grids_dir, 'sgs_meta.json')
+
+    if mode == 'reporting_support':
+        if not (os.path.exists(reporting_reals) and os.path.exists(reporting_meta)):
+            raise FileNotFoundError("Reporting-support validation requested but reporting outputs are missing")
+        return reporting_reals, reporting_meta, 'reporting_support'
+
+    if mode == 'simulation_support':
+        if not (os.path.exists(sim_reals) and os.path.exists(sim_meta)):
+            raise FileNotFoundError("Simulation-support validation requested but simulation outputs are missing")
+        return sim_reals, sim_meta, 'simulation_support'
+
+    if config and config.get('reporting_grid') and os.path.exists(reporting_reals) and os.path.exists(reporting_meta):
+        return reporting_reals, reporting_meta, 'reporting_support'
+    if os.path.exists(sim_reals) and os.path.exists(sim_meta):
+        return sim_reals, sim_meta, 'simulation_support'
+    raise FileNotFoundError("Unable to resolve validation support files")
+
+
+def run(
+    realizations_path=None,
+    data_path=None,
+    data_dir='data',
+    output_dir='outputs/figures',
+    cutoff=3.0,
+    config=None,
+    mode='auto',
+    suffix='',
+    metrics_filename='validation_metrics.json',
+):
     """
     Run validation plotting.
 
@@ -334,8 +396,6 @@ def run(realizations_path=None, data_path=None, data_dir='data', output_dir='out
     Returns:
         dict: Paths to generated plots
     """
-    import os
-
     outputs_root = output_dir
     if os.path.basename(output_dir) == 'figures':
         outputs_root = os.path.dirname(output_dir)
@@ -349,51 +409,54 @@ def run(realizations_path=None, data_path=None, data_dir='data', output_dir='out
     if realizations_path:
         realizations = np.load(realizations_path)
         grids_dir = os.path.dirname(realizations_path)
+        grid_meta_path = os.path.join(grids_dir, 'sgs_meta.json')
+        support_mode = mode if mode != 'auto' else 'simulation_support'
     else:
-        calibrate = config.get('calibration', {}).get('enabled') if config else False
-        reals_path = 'sgs_reals_calibrated.npy' if calibrate else 'sgs_reals.npy'
-        realizations = np.load(os.path.join(grids_dir, reals_path))
+        selected_reals, grid_meta_path, support_mode = _resolve_validation_support(grids_dir, config=config, mode=mode)
+        if support_mode == 'simulation_support' and config and config.get('calibration', {}).get('enabled'):
+            calibrated_path = os.path.join(grids_dir, 'sgs_reals_calibrated.npy')
+            realizations = np.load(calibrated_path if os.path.exists(calibrated_path) else selected_reals)
+        else:
+            realizations = np.load(selected_reals)
 
     # Load data
+    grade_field = config.get('grade_field', 'tgc_pct') if config else 'tgc_pct'
     data_df = load_validation_data(data_path, data_dir, config)
     swath_df = load_swath_data(data_dir=data_dir, config=config)
+    data_df = _ensure_plot_grade_column(data_df, grade_field=grade_field)
+    swath_df = _ensure_plot_grade_column(swath_df, grade_field=grade_field)
 
-    # Load grid definition
-    grid_meta_path = os.path.join(grids_dir, 'sgs_meta.json')
     if os.path.exists(grid_meta_path):
-        import json
-        with open(grid_meta_path, 'r') as f:
-            grid_meta = json.load(f)
-        grid_def = {
-            'x': np.linspace(grid_meta['x_min'], grid_meta['x_max'],
-                           int((grid_meta['x_max'] - grid_meta['x_min']) / grid_meta['dx']) + 1),
-            'y': np.linspace(grid_meta['y_min'], grid_meta['y_max'],
-                           int((grid_meta['y_max'] - grid_meta['y_min']) / grid_meta['dy']) + 1),
-            'z': np.linspace(grid_meta['z_min'], grid_meta['z_max'],
-                           int((grid_meta['z_max'] - grid_meta['z_min']) / grid_meta['dz']) + 1)
-        }
+        grid_def = _grid_def_from_meta(grid_meta_path)
     else:
         # Default grid
-        grid_def = {'x': np.arange(0, 1000, 25), 'y': np.arange(0, 1000, 25), 'z': np.arange(0, 100, 5)}
+        grid_def = {
+            'x': np.arange(0, 1000, 25),
+            'y': np.arange(0, 1000, 25),
+            'z': np.arange(0, 100, 5),
+            'dx': 25,
+            'dy': 25,
+            'dz': 5,
+        }
 
     rng = np.random.default_rng(42)
 
     # Generate plots
     create_swath_plot(realizations, swath_df, grid_def,
-                     os.path.join(figures_dir, 'swath_x.png'), axis=0)
+                     os.path.join(figures_dir, f'swath_x{suffix}.png'), axis=0)
     create_swath_plot(realizations, swath_df, grid_def,
-                     os.path.join(figures_dir, 'swath_y.png'), axis=1)
+                     os.path.join(figures_dir, f'swath_y{suffix}.png'), axis=1)
     create_swath_plot(realizations, swath_df, grid_def,
-                     os.path.join(figures_dir, 'swath_z.png'), axis=2)
+                     os.path.join(figures_dir, f'swath_z{suffix}.png'), axis=2)
     create_histogram_plot(realizations, data_df,
-                         os.path.join(figures_dir, 'histogram_validation.png'), cutoff=cutoff, rng=rng)
+                         os.path.join(figures_dir, f'histogram_validation{suffix}.png'), cutoff=cutoff, rng=rng)
 
     # QQ plot
     flat_sim = realizations.flatten()
     if len(flat_sim) > 10000:
         flat_sim = rng.choice(flat_sim, 10000, replace=False)
     create_qq_plot(data_df['tgc_pct'].values, flat_sim,
-                  os.path.join(figures_dir, 'qq_plot.png'), cutoff=cutoff)
+                  os.path.join(figures_dir, f'qq_plot{suffix}.png'), cutoff=cutoff)
 
     # Validation metrics
     mean_data = float(data_df['tgc_pct'].mean())
@@ -417,11 +480,14 @@ def run(realizations_path=None, data_path=None, data_dir='data', output_dir='out
             compute_swath_coverage(realizations, swath_df, grid_def, axis=1),
             compute_swath_coverage(realizations, swath_df, grid_def, axis=2),
         ]),
+        'validation_mode': support_mode,
+        'support_dx': float(grid_def['dx']),
+        'support_dy': float(grid_def['dy']),
+        'support_dz': float(grid_def['dz']),
     }
 
-    import json
-    metrics_path = os.path.join(tables_dir, 'validation_metrics.json')
-    with open(metrics_path, 'w') as f:
+    metrics_path = os.path.join(tables_dir, metrics_filename)
+    with open(metrics_path, 'w', encoding='utf-8') as f:
         json.dump(metrics, f, indent=2)
 
     # Regression check: recompute key metrics from arrays used in plots
@@ -439,9 +505,11 @@ def run(realizations_path=None, data_path=None, data_dir='data', output_dir='out
     logger.info(f"Generated validation plots in {output_dir}")
 
     return {
-        'swath_x': os.path.join(figures_dir, 'swath_x.png'),
-        'swath_y': os.path.join(figures_dir, 'swath_y.png'),
-        'swath_z': os.path.join(figures_dir, 'swath_z.png'),
-        'histogram': os.path.join(figures_dir, 'histogram_validation.png'),
-        'qq': os.path.join(figures_dir, 'qq_plot.png')
+        'mode': support_mode,
+        'metrics': metrics_path,
+        'swath_x': os.path.join(figures_dir, f'swath_x{suffix}.png'),
+        'swath_y': os.path.join(figures_dir, f'swath_y{suffix}.png'),
+        'swath_z': os.path.join(figures_dir, f'swath_z{suffix}.png'),
+        'histogram': os.path.join(figures_dir, f'histogram_validation{suffix}.png'),
+        'qq': os.path.join(figures_dir, f'qq_plot{suffix}.png')
     }

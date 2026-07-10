@@ -1,347 +1,292 @@
-# Grade Uncertainty and Risk Assessment in a Stratiform Graphite Deposit, Tanzania: A Sequential Gaussian Simulation Approach
+# Geological Support and Reporting-Envelope Effects on Grade Uncertainty in a Tanzanian Stratiform Graphite System
 
-**Authors:** Blinded for review
+**Authors:** Sudipta Chanda
 
-**Affiliations:** Blinded for review
+**Affiliations:** Sakariya Mines and Minerals Private Limited, 1402 Ecostation Business Tower, Newtown, Rajarhat, Kolkata, West Bengal 700160, India
 
-**Corresponding Author:** Blinded for review
+**Corresponding author:** Sudipta Chanda
 
----
+**Corresponding author email:** sudipta.chanda@sakariya.in
+
+**ORCID iD:** 0009-0001-5030-7524
+
+**ORCID record:** https://orcid.org/0009-0001-5030-7524
+
+**Acknowledgements:** The author acknowledges the technical contributions of project team members who supported data preparation, workflow execution, and manuscript quality control.
+
+**Author contributions:** Sudipta Chanda: conceptualization, data curation, methodology, software, formal analysis, visualization, writing - original draft, and writing - review and editing.
+
+------------------------------------------------------------------------
 
 ## Abstract
+Layer-parallel graphitic schist can define a convincing exploration corridor while leaving the volume used to summarize grade uncertainty poorly specified. We evaluate a 100-realisation, geology-conditioned Sequential Gaussian Simulation ensemble for a Tanzanian stratiform graphite system and then restrict completed outputs to a topography-clipped, archive-derived lode mask at common 50 x 50 x 2 m reporting support. The mask retains 55,716 25 x 25 x 2 m blocks (4.313% of the reporting volume). The full rectangular-grid ensemble mean is 2.056% total graphitic carbon (TGC), whereas the fractional lode-volume mean is 3.829% and the full-cell lode-core mean is 3.903%, compared with 3.921% for declustered graphitic composites. This is a reporting-support result, not independent grade validation, because the archive mask shares project lithology and threshold information with the SGS inputs. Within the envelope, probability and spread products are evaluated by convergence, variogram-reproduction and directional-swath diagnostics. Five repeated geology-blind sensitivity families retain closer selected global distribution fits, showing that global fit and geological reporting support answer different questions. The study provides a practical framework for separating support choice, conditional grade spread and model-behaviour uncertainty in graphite exploration.
 
-This study presents a geostatistical assessment of grade uncertainty in a stratiform graphite deposit in Tanzania. Sequential Gaussian Simulation (SGS) generated 200 conditional realizations of total graphitic carbon (TGC) on a pilot grid covering about 1.2 km x 4.5 km (about 5.4 km2) with 100 m x 100 m x 10 m blocks. The workflow uses minimum-curvature desurveying, 2 m length-weighted compositing, cell declustering (200 m x 200 m x 5 m), weighted normal-score transformation, directional variography, SGS, trend add-back, and post-simulation quantile-mapping calibration.
-
-Directional continuity is anisotropic with exponential model ranges of 237.5 m (along strike), 188.5 m (down dip), and 112.5 m (normal to plane), nugget 0.24 and structured sill 0.96 in normal-score space. Normal-to-plane continuity is poorly constrained by pair support and is treated as provisional; sensitivity tests on configured normal range are reported. Under the explicit pilot-screen scenario factor ($f_v = 0.055$), at 3% TGC cutoff the calibrated SGS ensemble gives P10/P50/P90 = 209.52/210.53/211.18 Mt with P50 grade 4.91% TGC.
-
-These outputs are for pilot-scale uncertainty screening and methodological evaluation only. They do not constitute a Mineral Resource or Ore Reserve statement under any reporting code.
-
-**Keywords:** graphite; sequential Gaussian simulation; geostatistics; uncertainty; risk; Tanzania
-
----
+**Keywords:** graphite; conditional simulation; reporting support; geological uncertainty; exploration evaluation; Tanzania
 
 ## 1. Introduction
 
-### 1.1 Problem and decision context
+Graphite-bearing metasedimentary horizons in the Tanzanian Mozambique Belt commonly follow compositional layering and metamorphic fabric, but this continuity does not establish the certainty of grade, contact position, weathering state or package geometry between drillholes. That distinction matters in graphite exploration because an apparently coherent graphitic corridor can be summarized over very different geological volumes.
 
-Deterministic kriging smooths local variability and can understate uncertainty. SGS is used here to represent uncertainty while honoring conditioning data and spatial continuity (Journel and Huijbregts, 1978; Deutsch and Journel, 1998; Goovaerts, 1997; Chiles and Delfiner, 2012; Nowak and Verly, 2005; Zanon and Leuangthong, 2003).
+Published work has established the regional setting, host rocks and mineralogical context of Tanzanian graphite occurrences [1, 2, 3]. A remaining mining-geology problem is how a completed simulation ensemble should be reported when its rectangular computational grid contains both graphitic-support and background volume.
 
-### 1.2 Study positioning and precedent
+Conditional simulation is useful here because it transfers uncertainty across multiple conditional outcomes rather than supplying one preferred grade surface [4]. Metallic-deposit studies have also shown that domain representation and support can change the apparent behaviour of grade uncertainty [5, 6]. Stratiform graphite has received less attention on this specific reporting-support problem.
 
-This paper documents a reproducible pilot-scale SGS workflow and reports uncertainty products (percentiles, exceedance probability, and risked tonnage) for a stratiform graphite setting.
+This study asks: (1) how strongly does reporting support alter ensemble grade summaries; (2) what conditional grade spread remains inside an archive-derived graphitic lode envelope; (3) how do global-fit diagnostics from a geology-blind sensitivity compare with support-aligned diagnostics; and (4) which products can guide relative geological follow-up without claiming local predictive calibration? The contribution is a geology-led reporting-support and uncertainty framework, not a resource estimate or a local grade-prediction model.
 
-A directly relevant African mining precedent reports grade-tonnage uncertainty using stochastic geostatistical workflows that combine multiple-point geostatistics with SGS in copper mineralization (Paithankar and Chatterjee, 2018). This provides regional precedent for framing pilot-scale uncertainty outputs as decision-support products rather than deterministic resource-style claims.
+## 2. Geological Setting
 
-Scope statement: this manuscript reports pilot-scale uncertainty screening outputs only. It is not a public resource statement and must not be used as JORC or NI 43-101 compliant reporting.
+### 2.1 Regional Mozambique Belt Framework
 
-## 2. Geological Context
+The study area lies in northeastern Tanzania within the Tanzanian sector of the Mozambique Belt / East African Orogen, a polyphase high-grade Neoproterozoic-Cambrian system shaped by crustal thickening, granulite-facies metamorphism, nappe emplacement and later structural reworking [7, 8, 9, 10]. Fold interference and crustal decoupling documented in northern Tanzania show that apparently continuous metamorphic packages may contain local structural complexity [11]. The mapped graphitic-schist corridor lies within this northern high-grade belt segment.
 
-Mineralization is hosted in graphitic schist with stratiform geometry and dominant lateral continuity. Model orientation used in this study is strike 105 degrees, dip 32 degrees, dip direction 15 degrees (dip positive down). The modeled weathering profile (oxide, transition, fresh) is used for density weighting in risk postprocessing.
+Figure 1 establishes the geological argument at three nested scales. Panel (a) locates northeastern Tanzania within the generalized East African Orogen-Mozambique Belt system, panel (b) places the study area in the eastern high-grade belt relative to the Tanzania Craton and adjacent Proterozoic belts, and panel (c) redraws the owned project mapping at drill-corridor scale with the 100 canonical collars. The mapped N-S to NNE-SSW graphitic-schist bands and adjacent khondalite/aluminous schist, mafic granulite and quartzofeldspathic units justify testing fabric-parallel continuity as a first-order prior. The map does not resolve contact position, package thickness or TGC continuity between holes; those remain the uncertainty questions evaluated by Figures 3-7.
+
+### 2.2 Graphite mineralisation in Tanzanian Mozambique Belt terranes
+
+Graphite mineralisation in Tanzanian Mozambique Belt terranes occurs in high-grade metasedimentary packages whose protolith composition, metamorphic fabric and later deformation organise graphite-bearing layers [1, 3, 12]. In that framework, graphite is commonly disseminated or layered in graphitic schist, mica schist, quartzofeldspathic gneiss, calc-silicate gneiss, marble or khondalite-like aluminous graphitic rocks. For the same Maramba-Tanga system, Das et al. [2] report petrographic evidence for graphite flakes aligned with foliation in graphitic schist, XRD evidence for crystalline graphite, Raman spectra with ordered graphite bands and weak defect response, and SEM/FTIR evidence for lamellar graphite with associated silicate/clay phases. Those published observations provide independent contextual support for graphitic schist, foliation-parallel fabric and weathering state as geological variables. SGS performance and uncertainty products are evaluated from this study's workflow outputs.
+
+Graphite mineralisation in northeastern Tanzania is therefore interpreted within the wider high-grade metasedimentary framework of the Mozambique Belt. Graphite-rich pelitic and psammitic gneisses are documented in the Merelani-Lelatema area [12], and regional studies show that metasedimentary packages can be repeatedly transposed during Pan-African tectonism. The key metallogenic implication for this study is that graphitic-schist continuity, contact uncertainty, weathering state and thickness-normal continuity are the geological variables that need direct testing.
+
+Figure 2 makes the structural hypothesis auditable by showing exactly how geology is converted into numerical continuity and search directions. Panel (a) defines the observed north-south corridor and the 000/180 degree strike proxy, panel (b) shows the east-dipping 090 degree/30 degree down-dip direction and its orthogonal plane normal, and panel (c) states the 250/200/20 m search radii. The figure is therefore a parameter-definition figure, not evidence that the imposed global anisotropy is locally correct.
+
+The convention is selected from local geological support: graphitic intervals form a north-south drillhole/composite corridor, the logged graphitic package is treated as east dipping at study scale, published local geology reports a broadly north-south to NNE-SSW graphitic-schist trend with moderate east dip and foliation-parallel graphite [2], and the SGS needs orthogonal axes that separate fabric-parallel, down-dip and thickness-normal continuity. Figure 3 is then an observational compatibility check. Panels A and B show the spatial and elevation coverage of assayed composites along the configured axes, while panel (c) quantifies sampled metres and 3% TGC threshold occupancy along the corridor. This supports testing the first-order proxy and identifies unevenly constrained reaches, but it neither validates the SGS nor establishes continuity between drillholes.
+
+### 2.3 Local Drillhole Geological Observations
+
+The drillhole database records graphitic schist, khondalite, quartzite, mafic granulite, quartzo-feldspathic schist and weathered graphitic variants within a high-grade metasedimentary package. This assemblage and the graphitic-schist host relationship agree with the regional high-grade metasedimentary framework and the original geological synthesis in Figure 1. Published weathered regolithic/kaolinised material and associated major-oxide patterns also support treating weathering as a geological state rather than only a modelling label.
+
+The local assay data then quantify how those logged categories relate to TGC. Table 1 defines the drillhole, assay, lithology and composite populations, while Table 2 shows that graphitic-coded composites have a median of 3.94% TGC and 66.37% of records at or above 3% TGC, compared with 2.34% TGC and 43.51% for non-graphitic composites. Figure 3 adds the required spatial context: the two projections show where vertical and lateral support exists, and the corridor profile shows that sampled metres and above-threshold occupancy are unevenly distributed. That distribution explains why later SGS outputs are interpreted as uncertainty localisation rather than direct interpolation between uniformly supported drill sections. The existing representative section inventory and lode-scale summaries provide a second geology layer beyond the SGS maps: they show that graphitic support concentrates into persistent section-scale and lode-scale features, which is consistent with the corridor-scale prior used here.
+
+Together, the mapped corridor, logged contacts and grade contrasts define the geological problem carried into SGS. They support testing stronger continuity within graphitic schist than across its boundaries, a possible local weathering-associated contrast, and shorter continuity normal to the graphitic package. They do not define fixed resource boundaries or prove that weathering causes graphite enrichment.
+
+### 2.4 Geological Priors Tested in This Study
+
+Four geological priors organise the analysis. The lithological prior separates fresh graphitic, weathered graphitic and host/waste categories. The contact prior tests whether uncertainty increases near graphitic-domain transitions. The weathering prior tests a distributional contrast within graphitic composites without assuming a causal enrichment mechanism. The structural prior tests whether continuity is more coherent along a first-order fabric-concordant ellipsoid than normal to the modelled package.
+
+Each prior maps to a numerical control described in Methods. Two-metre compositing and vertical cells preserve logged contact scale; hard domains preserve lithology and weathering categories; the 3% TGC threshold identifies above-threshold model occupancy; the 000/090/270 degree convention provides the structural axes; the 250/200/20 m frame limits thickness-normal conditioning; and the 3/20 neighbourhood controls local data influence. These controls were fixed before interpretation and are evaluated through model behaviour rather than selected post hoc for the closest histogram.
 
 ## 3. Data and Methods
 
-### 3.1 Drillhole database and validation
+### 3.1 Drillhole Database and Workflow Quality Assurance and Quality Control (QA/QC)
 
-Validated inputs include collars, surveys, assays, and lithology. Summary counts from run metadata:
+The study uses 100 drillholes, 3,350 assay intervals and 1,248 lithology records. Table 1 follows the data from raw assays and lithology logs through desurveying, compositing, domain assignment and the audit-level Online Resource 2 workbook. The quantitative analyses are based on the curated project database and reproducible workflow outputs. Before modelling, the workflow checks interval validity, assay/lithology support, survey availability and the 100-hole study policy; four holes with incomplete assay/lithology support are excluded from study metrics. The QA/QC statement in this manuscript therefore refers to the reproducible workflow's data-integrity checks and audit trail, not to an independent validation of the SGS ensemble.
 
-- Drillholes: 104
-- Survey records: 208
-- Assay intervals: 3336
-- Lithology intervals: 1248
-- Total validated assay meters: 7872.27 m
+### 3.2 Compositing and Support
 
-Validation checks covered interval integrity, depth monotonicity, survey ranges, and assay ranges.
+Assay intervals were desurveyed and composited to 2 m support using length weighting:
 
-### 3.2 Desurveying
+Equation (1):
 
-Assay intervals were desurveyed using minimum curvature. Sample coordinates were assigned at interval midpoints along the desurveyed trajectory.
+```math
+Z_{\mathrm{comp}} = \frac{\sum_i L_i Z_i}{\sum_i L_i}
+```
 
-### 3.3 Compositing and support
+where composite TGC is calculated from the length and TGC of each contributing assay interval. The 2 m length regularises variable assay intervals while retaining the vertical scale of logged graphitic and weathering contacts. A minimum retained length of 0.5 m prevents short edge intervals from being forced into artificial 2 m composites.
 
-Assays were composited to 2.0 m support using length weighting:
+Simulation used 25 m x 25 m x 2 m cells. The lateral dimensions retain plan-view graphitic-body morphology without treating individual assays as mappable panels between drill sections, while the 2 m vertical dimension matches composite support and preserves contact/weathering resolution. This support represents the geological scale tested; local predictive behaviour is evaluated separately by the validation diagnostics.
 
-$$Z_{comp} = \frac{\sum_i L_i Z_i}{\sum_i L_i}$$
+Results were aggregated to 50 m x 50 m x 2 m reporting support. The two-by-two lateral aggregation is tied to the closest local drill spacing and stabilises map-scale probability and spread diagnostics while retaining the 2 m vertical dimension. It is an averaging support for comparison and visualisation, not evidence that every 50 m block is independently predicted.
 
-Minimum composite length was 0.5 m. Support sensitivity (1 m, 2 m, 3 m) is summarized in Table 11 and shows stable domain means with increasing smoothing (lower standard deviation at longer support).
+No top-cut was applied because the graphitic 2 m population does not contain a detached high-grade tail. It has n = 3,948, mean 4.27% TGC, median 3.96% TGC, maximum 14.67% TGC and COV 0.53. A 99.5th-percentile cap at 11.99% TGC would affect 19 composites (0.48%) and change the mean and variance by only -0.13% and -1.88%, respectively.
 
-### 3.4 Domain definition
+### 3.3 Domain Definition
 
-The simulation domain includes lithology codes: GRSC, GRSC1, GRSC2, SAP (GRSC), and SAPR (GRSC). Combined domain composite count in run metadata is 3506.
+Composites were grouped into fresh graphitic, weathered graphitic and host/waste categories. The 3% TGC threshold was selected from the study dataset before SGS as a geological screening threshold separating weakly graphitic/background material from more continuous graphitic-schist support in the local histogram and logs. In the canonical 2 m composites it lies between the lower quartile (2.358% TGC) and median (3.849% TGC), and 64.26% of composite metres are at or above it. The threshold is used only for domain checks and above-threshold model occupancy; no economic assumptions are applied. Table 3 records the threshold, boundary, search-neighbourhood and variogram settings. The hard-boundary case is a geological-prior end member that prevents grade conditioning across fresh graphitic, weathered graphitic and host/waste categories within each realisation.
 
-GRSC-only statistics from the current run are reported in Table 1 (n = 1790; mean = 3.97% TGC; std = 2.24%). Table 2 reports weighted combined-domain declustering statistics; these tables are different populations and are not numerically interchangeable.
+### 3.4 Categorical Sensitivity Used by Grade SGS
 
-### 3.5 Declustering
+Fresh graphitic, weathered graphitic and host/waste classes were assigned from logged composites and sampled from fixed local inverse-distance probability scores within the configured anisotropic search. The archived implementation draws categories independently at grid nodes; it is not indicator SGS, a transition-probability simulation or a spatially coherent geological-body model. Grade SGS was then performed within the sampled class structure. Raw class frequency and entropy products are retained in Online Resource 2 as secondary model-sensitivity diagnostics. They are not used to define the primary reporting envelope or interpreted as calibrated class probabilities.
 
-Cell declustering used 200 m x 200 m x 5 m cells with weights:
+### 3.5 Declustering and Normal-Score Transformation (NST)
 
-$$w_i = \frac{1}{n_{cell(i)}}$$
+Cell declustering used 200 m x 200 m x 5 m cells. The X-Y cell size was selected to reduce drillhole-cluster bias at approximately the scale of the broader drill spacing while preserving the 2 m composite support in the vertical direction through a 5 m declustering height. A sensitivity test of cell size supports the choice: 100/200/300 m XY cells at 5 m Z give all-composite means 3.936/3.794/3.800% TGC; graphitic-only means 4.070/3.921/3.926% TGC. The 200 m result is therefore used as a conservative declustered reference rather than as a tuned parameter. NST was applied before SGS and back-transformed to TGC units after simulation, following standard geostatistical support and distribution handling [13, 14, 15, 16]. 
 
-Declustering summary:
+### 3.6 Variography and Structural Prior
 
-- Raw mean: 4.37% TGC
-- Declustered mean: 4.06% TGC
-- Weight range: 0.12 to 3.36 (mean 1.00)
+Directional variography tested continuity along strike, down dip and normal to the graphitic package using 50 m lags, 10 lags, a 500 m maximum distance and 22.5 degrees directional tolerance. The 50 m lag is close to the reporting-map support and local infill spacing, while the 500 m window tests continuity over approximately two major-range lengths. Pair-count support is strongest in the along-strike and down-dip directions and sparse normal to plane: pair totals along/down/normal = 205,965/57,295/26,911; normal-to-plane has 4/10 nonzero lags. The final SGS model used one exponential structure, one nugget interpretation in normal-score space, a 250 m major range parameter, nugget 0.20 and structured sill 0.80. The configured directional ranges and search radii are 250/200/20 m. These values implement the local geological continuity concept: longest continuity along the north-south graphitic corridor, slightly shorter down-dip continuity within the east-dipping package, and deliberately short thickness-normal continuity so the search does not smear grade across the graphitic package. The search radii are set equal to the first-order variogram-axis ranges for the fixed SGS run; they are not tuned from the validation plots.
 
-### 3.6 Normal-score transform
+### 3.7 Structural-Axis Convention
 
-Normal-score transform was fitted on declustered grades using centered weighted cumulative probabilities:
+The geostatistical model uses an orthogonal ellipsoid defined by strike, down-dip and plane-normal directions. In this convention, the strike line is assigned an azimuth of 000 degrees, equivalent to 180 degrees as an undirected line, the down-dip vector is assigned an azimuth of 090 degrees with a dip of 30 degrees, and the plane-normal vector is represented by 270 degrees. The axis choice was made from local geological reasoning before SGS interpretation: the graphitic composite corridor is north-south elongate, the local section geometry is consistent with an east-dipping graphitic package, and a right-handed ellipsoid is needed to test layer-parallel continuity separately from thickness-normal behaviour. The axes are used as a reproducible global first-order geostatistical proxy for search and variogram calculations; local folding and lens-scale curvature are evaluated as sources of residual structural uncertainty.
 
-$$p_i = \frac{\sum_{j\le i} w_j - 0.5 w_i}{\sum_j w_j}$$
+The run does not use dynamic/local dip handling. That choice is deliberate for this manuscript: the auditable input package contains drillhole, assay and lithology data, but not a shareable cell-wise structural-string model from which local dip could be regenerated. A dynamic search would require azimuth, plunge and dip values assigned to each grid cell from interpreted structural strings; without those shareable inputs, it would make the published workflow less reproducible. A global axis set keeps the parameterisation reproducible and directly tests the first-order geological hypothesis. Dynamic dip, local anisotropy or structural unfolding would be a different model class and would require a full rerun and a separate validation comparison.
 
-Normal scores were obtained as $y_i = \Phi^{-1}(p_i)$. Decluster weights were used when available; otherwise unit weights were used. Back-transform used piecewise linear interpolation between fitted score-data pairs with score clipping to fitted score bounds.
+### 3.8 SGS
 
-### 3.7 Trend handling
+The canonical model comprises 100 conditional SGS realisations with seed 1337. The implemented local estimator is simple-kriging-style in normal-score space: covariance weights are solved without the Lagrange multiplier used by ordinary kriging. The archived run configuration contained a legacy `OK` label, but the Online Resource 2 metadata report `SK_style_effective` as the primary estimator and retain the legacy label only in a provenance field. No simulation values were changed by this metadata correction.
 
-A linear trend in z was fitted by least squares and removed before NST/SGS, then added back after back-transform:
+First-order mean contrasts are handled by hard fresh-graphitic, weathered-graphitic and host/waste domains and by domain-wise NST. No explicit deterministic grade trend or detrending correction is applied in the production SGS; elevation-related grade behaviour is retained as diagnostic geological context rather than imposed as a drift term. The production model therefore transfers residual within-domain variability around a zero-mean Gaussian framework rather than imposing a deterministic grade trend.
 
-$$T(z) = \beta_0 + \beta_1 z$$
+The search ellipsoid and neighbourhood were fixed before SGS interpretation. Minimum/maximum neighbours of 3/20 provide a small local conditioning set while limiting dense-cluster influence, and simulated nodes are added immediately to the conditioning search. The implementation does not impose a minimum number of distinct drillholes per node, so the neighbourhood controls local sample count rather than guaranteeing balanced drillhole support.
 
-with fitted coefficients from run metadata: $\beta_0 = 0.0455633$, $\beta_1 = 0.00602013$. Trend diagnostics are summarized in Table 10, and reconciliation against `stationarity_trends.json` is given in Table 12.
+One hundred realisations provide the ensemble for percentile, exceedance-probability, entropy and cutoff-occupancy summaries. SGS is used here as an uncertainty-transfer mechanism: it carries the lithological domains, first-order structural proxy and fitted covariance model into multiple conditional outcomes, then reveals where those controls fail to constrain a narrow range of plausible values. It is not treated as an exact local grade predictor.
 
-### 3.8 Internal validation protocol
+The completed trend-disabled ensemble has a reporting-support minimum of 0.000% TGC and 0.00% negative cells. A zero-floor audit is therefore numerically inactive for the canonical run. This confirms physically admissible output values for the canonical run.
 
-Validation is performed using internal project data and realization diagnostics only. Four checks are used:
+### 3.9 Archive-Derived Lode Envelope and Model-Behaviour Diagnostics
 
-1. Distribution reproduction: histogram overlap and Q-Q RMSE between model outputs and internal reference distributions.
-2. Spatial reproduction: swath diagnostics in X, Y, and Z using mean trends and P10-P90 envelopes.
-3. Predictive diagnostics: random-fold and blocked spatial cross-validation, with blocked CV treated as primary predictive evidence.
-4. Structural diagnostics: lag-wise variogram reproduction checks against target directional continuity.
+An archive-derived seven-lode mask was examined only as a reporting-support sensitivity. The available mask was generated algorithmically from the overlapping project database using graphitic-coded 2 m composites, a 3% TGC screening rule, fixed gap rules, spatial clustering, roof-and-floor interpolation and block-derived mesh construction. It is not the controlling MRE's unavailable 28 section-interpreted wireframes, and it does not provide independent geological validation. Its simplified construction also uses collar X/Y and collar elevation minus downhole depth rather than the desurveyed interval positions used by the SGS workflow.
 
-These checks are complementary. Distribution and swath checks evaluate ensemble realism at support scale, while cross-validation quantifies point-support predictive difficulty.
+Only x, y, z, block dimensions, lode identity and the DEM-derived topography field were read from the archived block table. Estimated TGC, kriging variance, neighbourhood counts, density, classification, tonnes and contained graphite were excluded. The 25 x 25 x 2 m blocks were mapped by exact centre alignment to the canonical EPSG:32737 grid. Of 57,172 archived blocks, 55,724 lie inside the SGS grid; 8 centres above the archived surface were removed, leaving 55,716 common-support blocks. The 1,448 blocks outside the SGS footprint are not compared.
 
-### 3.9 Coordinate reference system
+At reporting support, each 50 x 50 x 2 m cell receives a fractional lode weight f equal to its retained fine-block count divided by four. Primary scalar summaries use the volume-weighted realisation mean, \(ar{Z}_r = \sum_i f_i Z_{ri} / \sum_i f_i\). Any-intersection (f > 0) and full-cell-core (f = 1) summaries provide predeclared sensitivity brackets. The original rectangular-grid summaries remain audit comparators. A vertical sum of mask occupancy is labelled vertical envelope occupancy, not true geological thickness. Histogram, Q-Q, variogram and swath diagnostics are reported as model behaviour; no independent blocked validation of the final SGS ensemble is claimed.
 
-All modeling was performed in EPSG:32737 (UTM Zone 37S).
+### 3.10 Geology-Blind Composite Null Sensitivity
 
-### 3.10 Variography
+Five independent no-domain isotropic families were completed with seeds 9101, 9201, 9301, 9401 and 9501, each containing 20 realisations. The null runs use direct 50 x 50 x 2 m simulation, no hard or categorical domains, one whole-population normal-score transform, isotropic 150 x 150 x 150 m covariance and search, legacy 105/15/195 degree axis labels, 8-24 neighbours, and an enabled vertical trend. The canonical ensemble uses 25 x 25 x 2 m simulation aggregated to the same 50 x 50 x 2 m reporting support, stochastic hard domains, domain-wise transforms, 250 x 200 x 20 m geological-axis covariance and search, 3-20 neighbours, and no grade trend. The comparison is therefore matched at reporting support and realisation count but is a composite configuration sensitivity rather than a one-factor domain ablation.
 
-Directional variograms were computed in normal-score space using:
+Five non-overlapping 20-realisation subsets of the canonical ensemble provide the realisation-count comparison. The original null family was also resampled 200 times with replacement (seed 20260707) to separate within-family Monte Carlo variation from between-seed variation. Histogram overlap, Q-Q RMSE, mean and standard deviation of simulated TGC, directional swath correlations, and swath coverage are reported for every seed; no run was selected by performance.
 
-- Along strike: azimuth 105 degrees, dip 0 degrees
-- Down dip: azimuth 15 degrees, dip 32 degrees
-- Normal to plane: azimuth 195 degrees, dip 58 degrees
+### 3.11 Withheld-Composite Validation Baseline
 
-Variogram setup:
 
-- Lag distance: 50 m
-- Number of lags: 10
-- Maximum distance: 500 m
-- Angular tolerance: 22.5 degrees
-- Fit method: weighted least squares
-- Candidate models: exponential, spherical
-- Variogram subsample cap: 800 composites
-- Pair cap per direction: 200000
-- Lag binning: equal-width bins from 0 to max distance
-- Variogram fitting used valid semivariances only (finite, >0)
-- Fitted range was constrained to practical bounds (invalid/extreme fitted values reset to half max lag)
 
-Selected model for simulation: exponential with nugget 0.24, structured sill 0.96, and ranges 237.5 m (strike), 188.5 m (down dip), 112.5 m (normal).
+The categorical probabilities were validated independently of grade SGS by five-fold grouped cross-validation (CV). Complete drillholes were withheld, the fixed local-probability algorithm was recomputed from the remaining holes only, and predictions were evaluated at every withheld composite. Multiclass performance is reported using macro-F1, balanced accuracy, log loss and a three-class confusion matrix. Fresh plus weathered graphitic classes were combined against host/waste to calculate ROC-AUC, Brier score, Brier skill relative to each fold's training prevalence and ten fixed-width reliability bins. Predictions were separated into locations with at least one retained-hole composite inside the configured anisotropic search and locations invoking the deterministic host/waste no-support fallback. Normalised Shannon entropy was tested as a relative error-ranking score using ROC-AUC against the held-out class-error indicator. A leakage-free calibration sensitivity used four-fold grouped inner predictions to fit a logistic mapping within each outer training fold before application to its withheld holes; this mapping was not applied to the archived categorical realisations. Fold construction uses seed 20260707 and requires zero drillhole overlap.
 
-Lag-wise pair counts are reported in Table 9; normal-to-plane support is sparse at higher lags (zero pairs from lag 6 onward).
-Normal-to-plane continuity is poorly constrained; it is treated as provisional and tested with normal-range sensitivity (Table 15).
-Accordingly, continuity interpretation is treated as robust in strike/down-dip directions and provisional in the normal direction.
-This treatment is consistent with screening-stage guidance on variogram reproduction and neighborhood/search-strategy interactions in sequential simulation workflows (Babak, 2006).
+Directional swaths in Figure 7 were computed in the configured strike, down-dip and thickness-normal coordinate system. For each of ten equal-width bins, observed composite TGC is shown only when at least five composites are present. Each realisation was averaged over reporting cells in the same bin, and the plotted P10, P50 and P90 curves are percentiles across those 100 realisation-level bin means. Aligned bars beneath each swath report the observed composite count, and a dashed line marks the five-composite display threshold. Separating sample support from the grade curves allows directional agreement, envelope width and data density to be read together without annotation obscuring the observations.
 
-### 3.11 SGS setup
+A separate withheld-composite validation baseline was run to test the predictive behaviour of the geological prior without relabelling the final SGS diagnostics as independent validation. The baseline used a reproducible 1,800-composite subset and three fold families: 500 m XY spatial blocks, leave-hole-out folds and 100 m leave-section-out folds. In each fold, inverse-distance weighting, ordinary kriging and simple kriging were trained on the retained composites and evaluated against withheld composite TGC in original units. This is a baseline validation of spatial prediction under the same geological data support, not a blocked rerun of the final 100-realisation SGS ensemble.
 
-Pilot grid and simulation parameters:
+Run reproducibility is recorded in Online Resource 2 through the simulation seed, categorical seed rule, CRS, grid origin and support, structural axes, ellipsoidal search radii, neighbourhood limits, variogram parameters, estimator implementation and validation seeds. These fields reproduce the numerical configuration and calculation logic, while full regeneration remains conditional on access to the proprietary drillhole and categorical arrays.
 
-- Origin: (475500, 9465400, 570)
-- Grid size: 13 x 46 x 27 cells
-- Cell size: 100 m x 100 m x 10 m
-- Total cells: 16146
-- Realizations: 200
-- Seed: 1337
-- Kriging: ordinary kriging
-- Search ellipsoid radii: 250 m (strike), 120 m (down dip), 70 m (normal)
-- Neighbors: minimum 8, maximum 24
+### 3.12 Above-Threshold Occupancy Diagnostics
 
-Simulation used local sequential conditioning with anisometric coordinates. If minimum neighbors were not found within the initial search radius, the radius was expanded by a factor of 1.5 up to 4 times; if still insufficient, nearest-neighbor fallback was applied to satisfy the minimum-neighbor constraint.
+For each realisation and TGC threshold, above-threshold model occupancy was calculated from the reporting-support cells meeting that threshold and summarised across the ensemble. The complete threshold sweep is provided in `cutoff_occupancy_uncertainty.csv` in Online Resource 2. It is a screening-stage geological diagnostic used only to compare the stability of model occupancy across realisations; no density, tonnage or economic interpretation is applied in the manuscript.
 
-### 3.12 Uncertainty products
+### 3.13 Generative AI-Assisted Preparation and Verification
 
-From 200 realizations, the study reports per-cell P10, P50, P90 and exceedance probabilities:
+OpenAI Codex was used to assist with editorial restructuring, reference-format conversion, workflow documentation, and review of deterministic plotting and packaging code. It was not used to generate scientific images or replace geological interpretation. All numerical results were calculated from project data by the documented code, and every manuscript statement, table, figure, and reference was reviewed by the author, who accepts full responsibility for the submitted work.
 
-$$P(Z(u) > c) = \frac{1}{R}\sum_{r=1}^{R} I\left(Z^{(r)}(u) > c\right)$$
+## 4. Results
 
-Primary probability map cutoff is c = 3% TGC.
+Results are reported in the same evidence order: Figure 3 shows drillhole geometry and threshold support, Figure 4 reports contact and weathering contrasts, Figures 5 and 6 show spatial uncertainty products, and Figure 7 with Table 4 reports validation diagnostics.
 
-### 3.13 Risked tonnage formulation
+### 4.1 Drillhole, Lithology and Domain Summary
 
-For each cutoff c and realization r:
+The processed dataset contains 3,350 assay records over 7902.37 m and 4,129 2 m composites. The length-weighted composite mean is 4.15% TGC, the declustered composite mean is 3.79% TGC, and graphitic-only composites average 4.28% TGC. Table 2 separates domain-grade evidence from later SGS outputs. Fresh graphitic composites average 4.21% TGC and weathered graphitic composites average 4.80% TGC; that contrast is tested in Section 4.5.
 
-$$T_{r,\mathrm{gross}}(c) = \sum_u I\left(Z^{(r)}(u) \ge c\right) \cdot V_{block} \cdot \rho$$
+### 4.2 Structural and Variogram Evidence
 
-$$T_{r,\mathrm{scaled}}(c) = T_{r,\mathrm{gross}}(c)\cdot f_v$$
+Directional continuity is anisotropic. The experimental range proxies are 1187.5 m along strike, 90.7 m down dip and 21.9 m normal to plane; only the along-strike proxy exceeds the 500 m experimental-variogram window. Figure 2 reports the observed corridor, the three directional axes and the search radii applied by SGS, and Table 3 lists the corresponding variogram and search settings.
 
-with:
+### 4.3 Archive-Derived Reporting-Support and Ensemble Behaviour
 
-- $V_{block}$ = 100 x 100 x 10 = 100000 m3
-- $\rho$ = 2.43 t/m3 (weathering-weighted basis)
-- $f_v$ = 0.055 (scenario scaling factor for effective modeled mineralized volume, dimensionless)
-Contained graphite is:
+The archived lode mask and completed SGS grid share 25 x 25 x 2 m support and EPSG:32737 coordinates. After common-footprint and topography checks, the retained mask occupies 4.313% of reporting volume. It intersects 19,286 reporting cells and contains 8,938 full lode-core cells. The full rectangular-grid mean is 2.056% TGC; the any-intersection, fractional-volume and full-cell-core means are 3.783%, 3.829% and 3.903%, respectively. The fractional and core means differ from the declustered graphitic-composite mean by -0.092 and -0.018% TGC.
 
-$$G_{r,\mathrm{scaled}}(c) = T_{r,\mathrm{scaled}}(c) \cdot \frac{\bar{Z}_r(c)}{100}$$
+At n = 75, envelope probability MAE is 0.018, probability correlation is 0.995, and spread correlation is 0.942 relative to the 100-realisation reference. Matched-space variogram and envelope-aligned directional-swath results are shown in Figure 7. These are numerical stability and model-behaviour diagnostics on the selected reporting support.
 
-Percentile tonnages are reported only when at least 5 realizations exceed cutoff.
+### 4.4 Population and Physical-Domain Checks
 
-This scaling factor is an explicit scenario assumption for this pilot study and is not a public reporting-code resource modifier. This manuscript reports scenario-scaled tonnage in the main results and provides gross/unscaled values as supplementary derived output.
+The physical-domain audit found no negative reporting-support values in the canonical trend-disabled ensemble: the minimum is 0.000% TGC and the negative-cell proportion is 0.00%. Replacing negative values with zero therefore leaves the mean, P10, P50, P90 and 3% occupancy unchanged.
 
-### 3.14 Scenario-basis tonnage sensitivity
+### 4.5 Contact and Weathering Controls
 
-To make scenario dependence explicit, scenario-scaled tonnage is reported in main text (`risked_tonnage.csv`) and unscaled gross tonnage is provided as supplementary derived output (`risked_tonnage_unscaled.csv`). Scaling is linear by formulation:
+The corrected weathering comparison is restricted to graphitic-domain composites. Weathered graphitic intervals (n = 382) average 4.80% TGC, compared with 4.21% TGC for fresh graphitic intervals (n = 3566). The mean difference is 0.59 percentage points (95% CI 0.32 to 0.86; Hedges g = 0.26; Welch p < 0.001). The hole-cluster bootstrap interval is 0.11 to 1.06 percentage points, whereas the 79-hole paired comparison is inconclusive (Wilcoxon p = 0.167).
 
-$$T_{P50}(f_v) = T_{P50,\ gross} \cdot f_v$$
+The signed graphitic-host profile contains 711 composites around 134 contiguous transitions in 42 drillholes. Graphitic-side mean TGC exceeds host/waste-side mean TGC by 2.42 percentage points. The separate unsigned graphitic-only distance-bin comparison is nonsignificant (ANOVA p = 0.467; Kruskal-Wallis p = 0.496; Levene p = 0.747). Figure 4a displays the signed profile and hole-cluster intervals.
 
-where $T_{P50,\ gross}$ is the unscaled P50 mass on the modeled grid.
-At 3% cutoff, the corresponding unscaled gross tonnage is 3825.79 Mt (P50) from `risked_tonnage_unscaled.csv`.
+Figure 4b displays the fresh and weathered graphitic TGC distributions. Figure 4c replots the published XRF weathering data of Das et al. [2] as contextual evidence and is not a new project measurement or an SGS validation result.
 
-### 3.15 Random-fold cross-validation check (non-spatial)
+### 4.6 Envelope-Constrained Spatial Uncertainty Products
 
-A 5-fold ordinary kriging cross-validation was run in normal-score space with back-transform to original units. Procedure: declustered composites were randomly shuffled with seed 42, split into 5 folds, and predictions were generated fold-wise from training data. For each fold, trend coefficients and NST were refit on training samples; variogram model settings were held fixed to the run configuration.
+Figure 5 maps the archive-derived lode footprint together with envelope-weighted cell P50 TGC, P90-P10 TGC spread and P(TGC > 3%). White map areas are outside the common lode-envelope support. Figure 6 carries the same mask into plan and east-west section views; the DEM-derived surface line is shown where the archived topography field is available. Fixed realisations 1, 50 and 100 display between-realisation grade variation on the same masked section. Raw categorical entropy, calibration and confusion diagnostics remain in Online Resource 2 rather than defining the main uncertainty maps.
 
-This is a random-fold (non-spatial) check and may be optimistic under spatial autocorrelation. It is reported as an internal consistency diagnostic, not as a spatially independent validation.
-A blocked spatial cross-validation is included in this manuscript package (`cross_validation_blocked_300.json`) and is used as primary predictive evidence relative to random-fold diagnostics.
+### 4.7 Above-Threshold Occupancy Diagnostics
 
-The submission package includes:
+Above-threshold model occupancy across the threshold sweep is reported in the Occupancy Diagnostics worksheet of Online Resource 2. Figure 7 reports support-aligned means, ensemble stability, variogram reproduction and geological-axis swaths; Table 4 reports histogram, Q-Q and withheld-composite metrics.
 
-- `cross_validation_300.json` (n = 300, seed 42)
-- `cross_validation_600.json` (n = 600, seed 42)
-- `cross_validation_blocked_300.json` (n = 300, 5 folds, blocked XY CV using 500 m blocks)
+## 5. Discussion
 
-## 4. Variography Results
+### 5.1 Geological Support and Reporting-Envelope Effects
 
-Directional continuity is evident in strike/down-dip directions and weakly constrained in the normal direction due to sparse lag support. For interpretation, this model should be treated as quasi-2D (strike/down-dip dominated) with provisional normal-direction continuity.
+The main result is that the full computational box and graphitic-support volume answer different questions. The full box includes a large background component, whereas the archive-derived mask confines summary statistics to a project-interpreted graphitic corridor. The difference between 2.056% TGC in the full box and 3.829% TGC under fractional lode-volume weighting is therefore a support effect, not evidence that one summary is inherently more accurate.
 
-## 5. Simulation and Validation Results
+### 5.2 What the Envelope Adds to Uncertainty Interpretation
 
-### 5.1 Internal validation summary
+Within the common envelope, probability and TGC-spread maps identify where the completed ensemble expresses persistent above-threshold occupancy and where its grade range remains broad. These maps are useful for comparing relative geological follow-up priorities inside the interpreted corridor. The vertical occupancy display is deliberately not treated as a true-thickness estimate, because the available mask is a block representation and may include disconnected vertical intervals.
 
-Internal validation diagnostics are reported in Table 7. Distributional agreement is strong, while swath correlations are moderate and directionally consistent with anisotropy support. The emphasis on ensemble-scale distribution and swath behavior, rather than block-by-block matching, follows common SGS validation practice (Nowak and Verly, 2005).
-Continuity checks (Table 14) show only modest swath-correlation shifts (X -0.0464, Y +0.0644, Z +0.0085), indicating no large directional distortion in these diagnostics.
+### 5.3 Global Fit of the Geology-Blind Model
 
-### 5.2 Internal diagnostics used for reporting
+The five independent composite null families reproduce selected global metrics more closely than the conditioned ensemble. Median histogram overlap is 0.870 (range 0.867-0.876) versus 0.602; median Q-Q RMSE is 0.672 (range 0.558-0.718) versus 2.144. Median X/Y/Z swath correlations are 0.626/0.417/0.344, compared with 0.512/0.245/0.199 for the conditioned ensemble. Median swath coverage is 99.705% versus 40.439%, reflecting the broader spatial coverage produced by the composite null configuration. Repetition across all five seeds establishes the robustness of this global-fit behaviour and supports evaluating global distribution fit separately from geological information content.
 
-Internal diagnostics used for reporting:
+### 5.4 Categorical Sensitivity and Geological Information
 
-- Mean grade (data/sim): 4.8600% / 4.8532%
-- Std (data/sim): 1.1477% / 1.1513%
-- Histogram overlap: 0.9789
-- QQ RMSE: 0.0760
-- Swath correlations (X/Y/Z): 0.5844 / 0.6229 / 0.4123
-- Swath coverage (P10-P90): 87.33%
+The categorical workflow remains informative as a modelling sensitivity, but whole-hole validation does not support calibrated class probabilities or independent fresh-weathered separation. The archive-derived envelope therefore carries the primary reporting-support role, while raw categorical frequency and entropy remain secondary evidence about how the local scoring rule partitions the completed simulation. The approach preserves an explicit distinction between model-implied spatial patterns and externally verified geology.
 
-### 5.3 Internal random-fold diagnostics
+### 5.5 Implications for Graphite Exploration and Resource Evaluation
 
-Cross-validation:
-- blocked spatial CV (primary): ME = -0.1859, MAE = 2.0674, RMSE = 2.6153
-- 300-sample run: ME = -0.0661, MAE = 1.7358, RMSE = 2.2823
-- 600-sample run: ME = 0.0408, MAE = 1.5430, RMSE = 2.1272
+The reporting envelope provides a practical sequence for geological follow-up. The lode-support map shows where simulation summaries are being compared with an interpreted graphitic corridor. Envelope-weighted P50 TGC communicates central grade behaviour on that support, P90-P10 TGC spread identifies relative grade uncertainty, and P(TGC > 3%) shows modelled above-threshold occupancy. The full-grid comparison prevents those products from being judged only by a global histogram. These are relative geological follow-up products; they do not optimise drilling, classify resources or establish product quality.
 
-Relative to data standard deviation (1.1477), RMSE is 2.28x (blocked), 1.99x (300-sample random-fold), and 1.85x (600-sample random-fold). This is not a small error regime; point-support CV is intentionally harsher than distributional histogram/QQ checks and is interpreted as evidence of substantial local predictive uncertainty. Accordingly, CV is framed here as predictive-difficulty evidence at point support, while the primary project objective remains pilot-scale uncertainty screening and risk bracketing rather than high-precision point prediction.
+### 5.6 Limitations and Future Validation
 
-### 5.4 Variogram reproduction check (realizations vs target)
+The archive-derived mask shares drillholes, graphitic coding and threshold logic with the SGS inputs, uses simplified vertical run geometry, and is not the unavailable 28-wireframe controlling MRE interpretation; its agreement with the SGS is therefore a reporting-support sensitivity rather than independent validation. The categorical simulator uses independent local draws, the null families change several controls together, and final-grade blocked calibration remains unavailable. Future work should test desurveyed section interpretations, spatially coherent categorical models, locally varying structure and truly independent drilling or blocked SGS validation.
 
-To address SGS-standard structure validation, a lag-wise variogram reproduction check was run for along-strike and down-dip directions using the final realization ensemble (`outputs/tables/variogram_reproduction_lag.csv`). Summary statistics (Table 16) indicate moderate reproduction error in grade space at pilot support, with the shortest lag affected by coarse 100 m block spacing and limited short-distance pair support. This result is treated as consistent with screening-scale behavior rather than a claim of full variogram reproduction at all lags.
+## 6. Conclusions
 
-## 6. Risk Analysis
+1. The full rectangular grid and graphitic-support reporting volume give materially different ensemble summaries. The completed full-grid mean is 2.056% TGC, compared with 3.829% under fractional archive-lode weighting and 3.903% in the full-cell core.
 
-Table 6 presents scenario-scaled pilot-grid methodological output only; it is not a Mineral Resource or Ore Reserve statement and is not code-compliant resource reporting. To reduce resource-style presentation risk, the main text reports only the primary screening cutoff; full cutoff sweeps are provided in supplementary outputs (`risked_tonnage.csv` and derived unscaled `risked_tonnage_unscaled.csv`).
+2. The archive-derived, DEM-clipped lode envelope provides a transparent common support for reporting conditional P50 TGC, TGC spread and above-threshold occupancy. It is a sensitivity to domain representation and reporting support, not independent validation.
 
-At 3% TGC cutoff, risked tonnage is:
+3. Envelope probability and spread products can be assessed for Monte Carlo stability, covariance behaviour and directional reproduction. Their interpretation remains relative to the completed model and the selected support.
 
-- P10: 209.52 Mt
-- P50: 210.53 Mt
-- P90: 211.18 Mt
-- P50 grade: 4.91% TGC
-- P50 contained graphite: 10342 kt
-- Unscaled gross P50 tonnage (same cutoff): 3825.79 Mt (`risked_tonnage_unscaled.csv`)
+4. The repeated geology-blind sensitivity retains closer selected global distribution metrics. Global fit, support alignment and geological information should therefore be reported as separate evaluation axes rather than collapsed into one model ranking.
 
-These values are pilot-grid uncertainty outputs only, not reportable resource figures.
-Normal-range sensitivity (Table 15; best-fit configured normal range = 70 m, with sensitivity references at 60 m and 150 m) shows modest impact on Z-swath correlation and minimal impact on mean probability and 3% cutoff P50 tonnage.
+## 7. Statements and Declarations
 
-## 7. Discussion and Future Work
+### 7.1 Data Availability
 
-### 7.1 Robust findings versus provisional elements
+The collar, survey, lithology, assay, and QA/QC database belongs to the project data holder and is subject to confidentiality restrictions. Online Resource 1 (Supplementary Methods and Validation) documents the extended workflow and validation scope. Online Resource 2 (Audit-Level Metadata and Validation Workbook) provides machine-readable run configuration, variogram, validation, convergence, support-decomposition, contact, occupancy, and null-sensitivity summaries. These resources support audit of the reported calculations but cannot regenerate the proprietary project arrays. The full database may be made available to editors or reviewers for confidential examination, subject to data-owner approval.
 
-Directional anisotropy and pilot-scale risk outputs are robust in strike and down-dip directions under the current data support. Normal-direction continuity remains the most provisional component because pair support is sparse at larger lags and should be interpreted with explicit caution in planning contexts.
+### 7.2 Funding
 
-### 7.2 Comparison to related mining precedent
+This research received no specific external grant from funding agencies in the public, commercial, or not-for-profit sectors.
 
-The present workflow is aligned with established SGS practice and is consistent with African case-study precedent where probabilistic grade-tonnage framing is used for uncertainty communication (Nowak and Verly, 2005; Paithankar and Chatterjee, 2018). In this sense, the contribution here is a reproducible pilot-screen implementation for stratiform graphite, not a claim of reporting-code resource declaration.
+### 7.3 Ethics Approval
 
-### 7.3 Two-stage uncertainty and computational scale-up
+Not applicable. This geological and geostatistical study involved no human participants or animals.
 
-A practical next step is two-stage uncertainty treatment that separates geological geometry/domain uncertainty from grade uncertainty before integrated decision metrics, as demonstrated in related DS/MPS+SGS uncertainty studies (van der Grijp and Minnitt, 2015; Paithankar and Chatterjee, 2018). For larger scenario campaigns, machine-learning-assisted SGS acceleration is also relevant to reduce turnaround while preserving uncertainty diagnostics (Bai and Tahmasebi, 2022).
+### 7.4 Consent to Participate
 
-## 8. Limitations
+Not applicable.
 
-1. Normal-direction variogram support is weak at higher lags.
-2. Calibration improves distributional fit by design and should not be interpreted as independent predictive proof.
-3. Random-fold cross-validation is optimistic relative to blocked spatial CV.
-4. This is a pilot grid with coarse support and is not a mine-planning block model.
-5. Independent `f_v` derivation is pending and required before publication.
+### 7.5 Consent for Publication
 
-## 9. Conclusions
+Not applicable.
 
-1. The workflow is reproducible and documents desurvey, compositing, declustering, variography, SGS, trend handling, internal validation, and risk postprocessing.
-2. Directional anisotropy is evident in strike/down-dip directions, with lower confidence in the normal direction.
-3. The 200-realization ensemble provides pilot-scale uncertainty products for screening.
-4. Under the explicit pilot-screen scenario factor ($f_v = 0.055$), at 3% TGC cutoff risked tonnage is 209.52/210.53/211.18 Mt (P10/P50/P90) with P50 grade 4.91%.
-5. Outputs support uncertainty screening and drill-prioritization only; they are not code-compliant resource declarations.
+### 7.6 Competing Interests
 
-## Data Availability
+The author is affiliated with Sakariya Mines and Minerals Private Limited, which provided the project data used in this study. This affiliation is declared as a potential competing interest.
 
-All scripts and outputs used for this manuscript are included in this submission package under `repo/`, `src/`, and `outputs/` (including `validation_metrics_pre.json`, `cross_validation_300.json`, and `cross_validation_600.json`). Reproducible execution entry point: `python -m src.run_all --config config/project_best_fit.yaml --output outputs`.
+## 8. References
 
-Reproducibility manifest for reported tables/figures:
+[1] Moye CD, Msabi M (2021) Mineralogical and geochemical characteristics of graphite-bearing rocks at Chenjere Area, south-eastern Tanzania: Implications for the nature and quality of graphite mineralization. Tanzan. J. Sci. 47:535-551. https://doi.org/10.4314/tjs.v47i2.11
 
-- Table 6: `risked_tonnage.csv`
-- Table 7: `validation_metrics_pre.json`, `validation_metrics.json`
-- Table 8: `cross_validation_300.json`, `cross_validation_600.json`
-- Table 8 blocked CV: `cross_validation_blocked_300.json`
-- Table 9: `variogram_pair_counts.csv`
-- Table 10: `trend_diagnostics.json`
-- Table 12: `stationarity_trends.json`, `trend_stationarity_reconciliation.json`
-- Table 14: `validation_metrics_pre.json`, `validation_metrics.json`
-- Table 15: `normal_range_sensitivity.csv` (from `outputs/`, `outputs_normal_60/`, `outputs_normal_150/`)
-- Table 16: `variogram_reproduction_summary.json`, `variogram_reproduction_lag.csv`
-- Supplementary unscaled tonnage: `risked_tonnage_unscaled.csv`
-- Figure 1: `outputs/figures/variogram.png`, `outputs/figures/variogram_model.json`
-- Figures 2-4: `outputs/figures/histogram_validation.png`, `outputs/figures/qq_plot.png`, `outputs/figures/swath_x.png`, `outputs/figures/swath_y.png`, `outputs/figures/swath_z.png`
-- Figure 5: `outputs/figures/trend_diagnostic.png`
-- Figure 6: `outputs/figures/composite_length_hist.png`
+[2] Das S, Goswami S, Chowdhury SA, De S, Das K (2026) Discovery of the world class Maramba-Tanga Graphite deposit, NE Tanzania, Africa. Ore Energy Resour. Geol. 21:100132. https://doi.org/10.1016/j.oreoa.2026.100132
 
-A public DOI-backed archive and immutable URL are not included in this package and must be assigned before publication.
+[3] Case GND (2026) A time-space model of graphite mineral systems. Miner. Deposita 61:783-810. https://doi.org/10.1007/s00126-025-01412-5
 
-## References
+[4] Deutsch CV (2023) The Place of Geostatistical Simulation through the Life Cycle of a Mineral Deposit. Minerals 13:1400. https://doi.org/10.3390/min13111400
 
-Deutsch, C.V., Journel, A.G., 1998. GSLIB: Geostatistical Software Library and User's Guide, 2nd ed. Oxford University Press.
+[5] Maleki M, Emery X (2015) Joint simulation of grade and rock type in a stratabound copper deposit. Math. Geosci. 47:471-495. https://doi.org/10.1007/s11004-014-9556-8
 
-Goovaerts, P., 1997. Geostatistics for Natural Resources Evaluation. Oxford University Press.
+[6] Paithankar A, Chatterjee S (2018) Grade and tonnage uncertainty analysis of an African copper deposit using multiple-point geostatistics and SGS. Nat. Resour. Res. 27:419-436. https://doi.org/10.1007/s11053-017-9364-1
 
-Chiles, J.-P., Delfiner, P., 2012. Geostatistics: Modeling Spatial Uncertainty, 2nd ed. Wiley.
+[7] Fritz H, Abdelsalam M, Ali KA, Bingen B, Collins AS, Fowler AR, Ghebreab W, Hauzenberger C, Johnson PR, Kusky TM, Macey P, Muhongo S, Stern RJ, Viola G (2013) Orogen styles in the East African Orogen: A review of the Neoproterozoic to Cambrian tectonic evolution. J. Afr. Earth Sci. 86:65-106. https://doi.org/10.1016/j.jafrearsci.2013.06.004
 
-Journel, A.G., Huijbregts, C.J., 1978. Mining Geostatistics. Academic Press.
+[8] Muhongo S (1994) Neoproterozoic collision tectonics in the Mozambique Belt of East Africa: evidence from the Uluguru mountains, Tanzania. J. Afr. Earth Sci. 19:153-168. https://doi.org/10.1016/0899-5362(94)90058-2
 
-Remy, N., Boucher, A., Wu, J., 2009. Applied Geostatistics with SGeMS. Cambridge University Press.
+[9] Maboko MAH (1997) P-T conditions of metamorphism in the Wami River granulite complex, central coastal Tanzania: implications for Pan-African geotectonics in the Mozambique Belt of eastern Africa. J. Afr. Earth Sci. 24:51-64. https://doi.org/10.1016/S0899-5362(97)00026-2
 
-Isaaks, E.H., Srivastava, R.M., 1989. An Introduction to Applied Geostatistics. Oxford University Press.
+[10] Boniface N (2019) An overview of the Ediacaran-Cambrian orogenic events at the southern margins of the Tanzania Craton: Implication for the final assembly of Gondwana. J. Afr. Earth Sci. 150:123-130. https://doi.org/10.1016/j.jafrearsci.2018.10.015
 
-Matheron, G., 1973. The intrinsic random functions and their applications. Advances in Applied Probability 5, 439-468.
+[11] Fritz H, Tenczer V, Hauzenberger C (2023) Fold interference pattern and crustal decoupling in northern Tanzania. J. Afr. Earth Sci. 202:104940. https://doi.org/10.1016/j.jafrearsci.2023.104940
 
-Deutsch, C.V., 2002. Geostatistical Reservoir Modeling. Oxford University Press.
+[12] Malisa EP (1998) Application of graphite as a geothermometer in hydrothermally altered metamorphic rocks of the Merelani-Lelatema area, Mozambique Belt, northeastern Tanzania. J. Afr. Earth Sci. 26:313-316. https://doi.org/10.1016/S0899-5362(98)00013-X
 
-Nowak, M., Verly, G., 2005. The Practice of Sequential Gaussian Simulation. In: Geostatistics Banff 2004. Springer.
+[13] Isaaks EH, Srivastava RM (1989) An Introduction to Applied Geostatistics. Oxford University Press, New York.
 
-Zanon, S., Leuangthong, O., 2003. Selected Implementation Issues with Sequential Gaussian Simulation. CCG Annual Report.
+[14] Goovaerts P (1997) Geostatistics for Natural Resources Evaluation. Oxford University Press, New York.
 
-Babak, O., 2006. Variogram Reproduction in Sequential Simulation: Interaction Between Screening and Search Strategy. CCG Technical Report.
+[15] Deutsch CV, Journel AG (1998) GSLIB: Geostatistical Software Library and User's Guide, 2nd ed. Oxford University Press, New York.
 
-Paithankar, A., Chatterjee, S., 2018. Grade and Tonnage Uncertainty Analysis of an African Copper Deposit Using Multiple-Point Geostatistics and Sequential Gaussian Simulation. Natural Resources Research 27(4), 419-436.
-
-van der Grijp, Y., Minnitt, R.C.A., 2015. Application of Direct Sampling multi-point statistic and sequential Gaussian simulation algorithms for modelling uncertainty in gold deposits. Journal of the Southern African Institute of Mining and Metallurgy 115(1).
-
-Bai, T., Tahmasebi, P., 2022. Sequential Gaussian simulation for geosystems modeling: A machine learning approach. Geoscience Frontiers 13(1), 101258.
-
-
+[16] Chiles J-P, Delfiner P (2012) Geostatistics: Modeling Spatial Uncertainty, 2nd ed. Wiley, Hoboken, NJ.

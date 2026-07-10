@@ -135,9 +135,23 @@ def process_holes(collar, survey, assay, litho, grade_field='tgc_pct'):
         a = assay[assay['hole_id'] == hid].sort_values('from_m')
         l = litho[litho['hole_id'] == hid].sort_values('from_m')
 
-        if s.empty or a.empty:
-            logger.warning(f"Skipping hole {hid}: missing survey or assay data")
+        if a.empty:
+            logger.warning(f"Skipping hole {hid}: missing assay data")
             continue
+        if s.empty:
+            total_depth = c.get('total_depth', np.nan)
+            if not np.isfinite(total_depth):
+                total_depth = a['to_m'].max()
+            if not np.isfinite(total_depth) or total_depth <= 0:
+                logger.warning(f"Skipping hole {hid}: missing survey data and no usable depth fallback")
+                continue
+            logger.warning(f"Hole {hid}: missing survey data; using vertical collar-to-depth fallback")
+            s = pd.DataFrame({
+                'hole_id': [hid],
+                'depth': [float(total_depth)],
+                'azimuth_deg': [0.0],
+                'dip_deg': [-90.0],
+            })
 
         # Add collar as 0 depth survey if missing
         if 0 not in s['depth'].values:
@@ -158,16 +172,28 @@ def process_holes(collar, survey, assay, litho, grade_field='tgc_pct'):
 
         a_xyz = interpolate_assays(desurveyed, a)
 
-        # Assign lithology codes based on midpoint
-        a_xyz['lith_code'] = 'UNKNOWN'
+        # Assign lithology codes based on midpoint. If the geology table has
+        # overlapping intervals, keep the first sorted interval that covers the
+        # assay midpoint rather than failing the whole run.
+        if 'lith_code' in a_xyz.columns:
+            a_xyz['lith_code'] = a_xyz['lith_code'].astype(str).str.strip()
+            a_xyz.loc[a_xyz['lith_code'].isin({'', 'nan', 'None'}), 'lith_code'] = 'UNKNOWN'
+        else:
+            a_xyz['lith_code'] = 'UNKNOWN'
 
         if not l.empty:
             l = l.sort_values('from_m')
-            intervals = pd.IntervalIndex.from_arrays(l['from_m'], l['to_m'], closed='left')
-            idx = intervals.get_indexer(a_xyz['midpoint'])
-            valid = idx >= 0
+            starts = l['from_m'].to_numpy(dtype=float)
+            ends = l['to_m'].to_numpy(dtype=float)
             lith_codes = l['lith_code'].values
-            a_xyz.loc[valid, 'lith_code'] = lith_codes[idx[valid]]
+            assigned = []
+            for midpoint, current_code in zip(a_xyz['midpoint'].to_numpy(dtype=float), a_xyz['lith_code'].values):
+                matches = np.flatnonzero((starts <= midpoint) & (midpoint < ends))
+                if matches.size:
+                    assigned.append(lith_codes[int(matches[0])])
+                else:
+                    assigned.append(current_code)
+            a_xyz['lith_code'] = assigned
 
         # Ensure grade column is named consistently
         if grade_field != 'tgc_pct':

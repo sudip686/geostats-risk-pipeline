@@ -7,6 +7,12 @@ PAPER_MD="$SUB_DIR/paper.md"
 NOTE_FILE="$SUB_DIR/PDF_EXPORT_NOTE.txt"
 
 if ! command -v pandoc >/dev/null 2>&1; then
+  if [ -x "/c/Users/SUDIPTA CHANDA/AppData/Local/Pandoc/pandoc.exe" ]; then
+    export PATH="$PATH:/c/Users/SUDIPTA CHANDA/AppData/Local/Pandoc"
+  fi
+fi
+
+if ! command -v pandoc >/dev/null 2>&1; then
   echo "pandoc not found. Install pandoc to export PDF."
   exit 1
 fi
@@ -26,6 +32,12 @@ fi
 if [ ! -f "$BIB_FILE" ]; then
   echo "references.bib not found at root or paper/."
   exit 1
+fi
+
+if ! command -v xelatex >/dev/null 2>&1; then
+  if [ -x "/c/Users/SUDIPTA CHANDA/AppData/Local/Programs/MiKTeX/miktex/bin/x64/xelatex.exe" ]; then
+    export PATH="$PATH:/c/Users/SUDIPTA CHANDA/AppData/Local/Programs/MiKTeX/miktex/bin/x64"
+  fi
 fi
 
 if ! command -v xelatex >/dev/null 2>&1; then

@@ -1,0 +1,210 @@
+crs_epsg: 32737
+data_dir: data
+grade_field: tgc_pct
+grade_units: '%'
+orebody:
+  strike_deg: 0
+  dip_deg: 30
+  dip_direction_deg: 90
+  dip_positive_down: true
+compositing_length_m: 2.0
+min_composite_length_m: 0.5
+domain_by_lithology: true
+target_lith_codes:
+- GRSC
+- GRSC1
+- GRSC2
+- SAP (GRSC)
+- SAPR (GRSC)
+domains:
+  hard_boundaries: true
+  categorical_simulation: true
+  search_radius_m:
+  - 250
+  - 200
+  - 20
+  prior_weight: 2.0
+  assignment:
+    method: nearest_composite
+  canonical_groups:
+    fresh_graphitic:
+      lith_codes:
+      - GRSC
+      - GRSC1
+      - GRSC2
+    weathered_graphitic:
+      lith_codes:
+      - SAP (GRSC)
+      - SAPR (GRSC)
+    host_waste:
+      lith_codes: []
+declustering:
+  method: cell
+  cell_size_xy_m: 200
+  cell_size_z_m: 5
+variogram:
+  normalize_total_sill: true
+  total_sill: 1.0
+  shared_directional_model: true
+  nested_structures:
+    enabled: false
+    rationale: single-structure pilot model retained unless multi-scale continuity is demonstrated explicitly
+  directions:
+  - name: along_strike
+    azimuth: 0
+    dip: 0
+    tolerance: 22.5
+  - name: down_dip
+    azimuth: 90
+    dip: 30
+    tolerance: 22.5
+  - name: normal_to_plane
+    azimuth: 270
+    dip: 60
+    tolerance: 22.5
+  lag_m: 50
+  n_lags: 10
+  max_distance_m: 500
+  model_types:
+  - exponential
+  - spherical
+  fit_method: weighted_ls
+  max_samples: 800
+  max_pairs: 200000
+  anisotropy:
+    ranges_m:
+      strike: 250
+      down_dip: 200
+      normal: 20
+  tuning:
+    enabled: true
+    target_range_m: 250
+    nugget_ratio: 0.2
+grid:
+  origin_xyz: &id001
+  - 475500
+  - 9465400
+  - 570
+  nx: 52
+  ny: 184
+  nz: 135
+  dx: 25
+  dy: 25
+  dz: 2
+simulation:
+  n_real: 100
+  seed: 1337
+  search_radius_m:
+  - 250
+  - 200
+  - 20
+  max_neighbors: 20
+  min_neighbors: 3
+  require_full_neighborhood: true
+  cascade_allow_zero_neighbor_fallback: true
+  checkpoint_every: 5000
+  local_update_every: 1
+  kriging_type: OK
+  n_jobs: 20
+  cascade_n_jobs: 20
+  cascade_safe_max_workers: 20
+  krige_chunk_size: 2000
+ci:
+  n_real: 3
+cutoff_grade: 3.0
+density_t_per_m3: 2.43
+# Tonnage uses full block volume x density. Do not apply a rock_volume_factor;
+# geological/domain volume is represented by simulated domain masks and cutoff
+# probabilities, not by an arbitrary scalar.
+classification_benchmark:
+  enabled: true
+  relative_error_limit: 0.15
+  confidence_interval: 0.90
+  cutoff_grade: 3.0
+validation:
+  reference_data: ''
+  reference_columns:
+    x: X
+    y: Y
+    z: Z
+    grade: TGC_%
+  simulation_support_enabled: true
+sensitivity:
+  enabled: false
+  n_real: 40
+calibration:
+  enabled: false
+  reference_data: ''
+  reference_columns:
+    grade: TGC_%
+  method: quantile_mapping
+trend:
+  enabled: false
+  columns:
+  - z
+  allow_disable: false
+internal_validation:
+  enabled: false
+  model_csv: ''
+publication:
+  target_journal: JAES
+  story: geology_led_sgs_hardboundary_geology_aligned_250_200_20_nr100
+parameter_rationale:
+  selection_principle: geological observation first, numerical control second, validation as adequacy check; parameters are fixed before SGS interpretation rather than tuned to the closest histogram.
+  compositing: 2 m support regularises variable assay intervals while preserving the vertical scale of logged graphitic and weathering contacts; minimum retained length is 0.5 m.
+  simulation_support: 25 x 25 x 2 m cells preserve graphitic-body morphology and contact curvature without treating assays as mappable panels; 2 m vertical support remains aligned with compositing, weathering and contact scale.
+  reporting_support: 50 x 50 x 2 m blocks are a two-by-two lateral aggregation tied to the closest local drill spacing and stabilise map-scale uncertainty diagnostics while retaining 2 m contact/weathering resolution.
+  domains: fresh graphitic, weathered graphitic and host/waste categories preserve the local lithology/weathering controls being tested and avoid graphitic-only interpretation.
+  threshold_3pct_tgc: selected before SGS as a study-dataset geological screening threshold separating weakly graphitic/background material from more continuous graphitic-schist support.
+  boundary_policy: hard boundaries are used as a geological-prior end member before any future soft-boundary sensitivity.
+  axis_convention: 000/180 strike, 090/30 down dip and 270/60 normal separate graphitic-corridor continuity from thickness-normal continuity.
+  variogram_ranges_m: 250/200/20 m encodes strongest fabric-parallel continuity, slightly shorter down-dip continuity and short thickness-normal continuity; one exponential structure and one nugget interpretation are retained in normal-score space.
+  search_radii_m: 250/200/20 m match the geological/variogram axis concept rather than being tuned from validation diagnostics.
+  neighbourhood: min/max 3/20 provides a small local conditioning set while limiting dense-cluster influence; this implementation does not enforce a minimum-drillhole rule at each simulated node.
+  local_update_every: the SGS local conditioning tree is refreshed after every simulated node (`local_update_every=1`) for the canonical production ensemble. This avoids a batching approximation and is the most direct implementation of sequential conditioning, although it is slower than batched local-tree refreshes.
+  trend_disabled: vertical trend detrending is disabled for the canonical production SGS because the trend-plus-residual workflow simulates unbounded residuals and can create physically invalid negative TGC values in low-grade host/waste cells. Domain-wise raw-TGC NST keeps the back-transform bounded by observed non-negative TGC values while preserving the geological split between graphitic and host/waste domains; elevation trends are treated as diagnostic geological context rather than imposed as a production-grade drift correction.
+  dynamic_local_dip: not used; a reproducible cell-wise dip-string model is not part of the public audit package, so local anisotropy/unfolding is deferred to a full-rerun sensitivity.
+  realisations: 100 realisations support stable percentile, probability and cutoff-occupancy summaries.
+  random_seed: seed 1337 fixes stochastic reproducibility and is not a geological parameter.
+workflow_contract:
+  require_canonical_paths: true
+  canonical_config_path: config/main_config.yaml
+  canonical_output_dir: output/a3_geology_aligned_250_200_20_nr100
+  allow_noncanonical_with_env: ALLOW_NONCANONICAL_RUN
+reporting_grid:
+  origin_xyz: *id001
+  nx: 26
+  ny: 92
+  nz: 135
+  dx: 50
+  dy: 50
+  dz: 2
+postrun_review_pack:
+  enabled: true
+  fail_on_error: false
+  top_n: 50
+  tasks:
+    vertical_continuity: true
+    contact_analysis: true
+    domain_uncertainty: true
+    thickness_geometry: true
+    confidence_gradient: true
+paper_outputs:
+  auto_update_root_text: false
+runtime_profiles:
+  fast2x:
+    description: Exploratory speed profile that keeps grid geometry, search radii, and neighborhood policy unchanged while halving the realization count.
+    overrides:
+      simulation:
+        n_real: 50
+  fast3x:
+    description: Exploratory speed profile that keeps grid geometry, search radii, and neighborhood policy unchanged while reducing the realization count to 34.
+    overrides:
+      simulation:
+        n_real: 34
+
+
+
+
+
+

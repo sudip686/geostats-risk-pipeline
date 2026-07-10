@@ -296,7 +296,6 @@ def copy_supplement():
         ("risked_tonnage.csv", load_csv_latest("risked_tonnage.csv")),
         ("validation_metrics.json", load_json_latest("validation_metrics.json")),
         ("risked_tonnage_unscaled.csv", load_csv_latest("risked_tonnage_unscaled.csv")),
-        ("cross_validation_blocked_300.json", resolve_path("cross_validation_blocked_300.json", "outputs/tables/cross_validation_blocked_300.json")),
     ]
     for name, src in targets:
         shutil.copy2(src, SUPPLEMENT / name)
@@ -325,7 +324,7 @@ def build_reproducibility(cfg_path: Path, refs_path: Path, missing_figures: list
 - `risked_tonnage.csv` (latest)
 - `validation_metrics.json` (latest)
 - `risked_tonnage_unscaled.csv`
-- `cross_validation_blocked_300.json`
+- support-aware validation artifacts emitted by the selected run
 - `outputs/figures/*`
 
 ## Output package

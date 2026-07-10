@@ -1,6 +1,0 @@
-assumption,rank_min,rank_max,rank_span,baseline_rank
-Variogram tuning,1,3,2,1
-Trend handling,1,2,1,2
-Domain definition,2,3,1,3
-Neighborhood,4,4,0,4
-Top-cut policy,5,5,0,5

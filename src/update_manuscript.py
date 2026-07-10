@@ -10,7 +10,7 @@ def _format_mt(value):
     return f"{value:.2f}"
 
 
-def update(manuscript_path='paper/manuscript.md', outputs_dir='outputs', config_path='config/project.yaml'):
+def update(manuscript_path='paper/manuscript.md', outputs_dir='outputs', config_path='config/main_config.yaml'):
     config = load_config(config_path)
     cutoff = config.get('cutoff_grade', 3.0)
     risk_path = os.path.join(outputs_dir, 'tables', 'risked_tonnage.csv')
@@ -24,6 +24,13 @@ def update(manuscript_path='paper/manuscript.md', outputs_dir='outputs', config_
     p90 = row['tonnage_p90'] / 1e6
     g50 = row['grade_p50']
     c50 = row['contained_p50'] / 1e6
+    reporting = config.get('reporting_grid', {}) or {}
+    density = float(config.get('density_t_per_m3', 2.43))
+    block_note = (
+        f"(Mt = million tonnes; block volume {float(reporting.get('dx', 0)):.0f}x"
+        f"{float(reporting.get('dy', 0)):.0f}x{float(reporting.get('dz', 0)):.0f} m; "
+        f"density {density:.2f} t/m3)"
+    )
 
     text = open(manuscript_path, 'r', encoding='utf-8').read()
 
@@ -58,12 +65,10 @@ def update(manuscript_path='paper/manuscript.md', outputs_dir='outputs', config_
         text,
     )
 
-    mt_line = (
-        r"\(Mt = million tonnes; block volume 100x100x10 m; density 2\.43 t/m3\)"
-    )
+    mt_line = r"\(Mt = million tonnes; block volume [0-9.]+x[0-9.]+x[0-9.]+ m; density [0-9.]+ t/m3\)"
     text = re.sub(
         mt_line,
-        "(Mt = million tonnes; block volume 100x100x10 m; density 2.43 t/m3)",
+        block_note,
         text,
     )
 

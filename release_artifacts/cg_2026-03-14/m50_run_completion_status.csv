@@ -1,9 +1,0 @@
-scenario,completed,n_real
-m50_combined_base,True,50
-m50_combined_nb_alt,True,50
-m50_combined_trend_off,True,50
-m50_combined_var_alt,True,50
-m50_fresh_base,True,50
-m50_fresh_nb_alt,True,50
-m50_fresh_trend_off,True,50
-m50_fresh_var_alt,True,50

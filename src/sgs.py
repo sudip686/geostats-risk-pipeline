@@ -7,13 +7,20 @@ Correctly implements sequential conditioning for the entire grid.
 
 import sys
 import os
+import json
 import numpy as np
 import pandas as pd
 import logging
 import time
+import tempfile
 from scipy.spatial import cKDTree
 from scipy.spatial.distance import cdist
 from typing import Optional
+from pathlib import Path
+from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+from .variography import build_orebody_axes, orebody_from_config
 
 logger = logging.getLogger(__name__)
 
@@ -77,14 +84,14 @@ def validate_variogram_for_sgs(vario_model, grid_def, config):
     return warnings
 
 
-def validate_conditioning_data(df):
+def validate_conditioning_data(df, grade_field='tgc_pct'):
     """Validate conditioning data before SGS."""
-    required_cols = {'x', 'y', 'z', 'tgc_pct'}
+    required_cols = {'x', 'y', 'z', grade_field}
     missing = required_cols.difference(df.columns)
     if missing:
         raise ValueError(f"Missing conditioning columns: {sorted(missing)}")
 
-    if df[['x', 'y', 'z', 'tgc_pct']].isna().any().any():
+    if df[['x', 'y', 'z', grade_field]].isna().any().any():
         raise ValueError("Conditioning data contains NaN values")
 
     if len(df) < 10:
@@ -152,7 +159,7 @@ def define_grid(config, domain_data):
 
 def run_single_realization(real_idx, seed, cond_pos, cond_val, x_ax, y_ax, z_ax,
                            vario_model, nst, chunk_size=None, search_radius=None,
-                           max_neighbors=None, min_neighbors=None):
+                           max_neighbors=None, min_neighbors=None, update_every=1):
     """
     Run a single SGS realization with proper sequential conditioning.
 
@@ -180,39 +187,10 @@ def run_single_realization(real_idx, seed, cond_pos, cond_val, x_ax, y_ax, z_ax,
     real_idx : int
         Realization index
     real_data : ndarray
-        Back-transformed realization (nx, ny, nz)
+        Back-transformed realization in grade units (nx, ny, nz)
+    real_ns : ndarray
+        Realization in normal-score units (nx, ny, nz)
     """
-    # If neighborhood constraints are set, use local SGS implementation
-    if search_radius is not None or max_neighbors is not None or min_neighbors is not None:
-        grid_points = np.array(
-            np.meshgrid(x_ax, y_ax, z_ax, indexing='ij')
-        ).reshape(3, -1).T
-        cond_points = np.vstack(cond_pos).T
-        cond_points = _build_anisometric_points(vario_model, cond_points.T)
-        grid_points = _build_anisometric_points(vario_model, grid_points.T)
-
-        idx, sim_vals, stats = run_single_realization_local(
-            real_idx,
-            seed,
-            cond_points,
-            cond_val,
-            grid_points,
-            vario_model,
-            nst,
-            search_radius=search_radius,
-            max_neighbors=max_neighbors,
-            min_neighbors=min_neighbors,
-        )
-        real_data = sim_vals.reshape(len(x_ax), len(y_ax), len(z_ax))
-        if stats:
-            logger.info(
-                "Realization %d: avg neighbors %.1f, fallback %.1f%%",
-                real_idx + 1,
-                stats.get('avg_neighbors', 0.0),
-                stats.get('fallback_pct', 0.0),
-            )
-        return idx, real_data
-
     # Default to global conditioning with gstools
     krige = gs.Krige(vario_model, cond_pos=cond_pos, cond_val=cond_val)
     srf = gs.CondSRF(krige)
@@ -222,7 +200,7 @@ def run_single_realization(real_idx, seed, cond_pos, cond_val, x_ax, y_ax, z_ax,
         field = srf.structured((x_ax, y_ax, z_ax), seed=seed + real_idx)
 
     real_data = nst.back_transform(field)
-    return real_idx, real_data.astype(np.float32)
+    return real_idx, real_data.astype(np.float32), field.astype(np.float32)
 
 
 def _build_anisometric_points(vario_model, coords):
@@ -271,33 +249,294 @@ def _select_neighbors(tree, points, target_pt, search_radius, max_neighbors):
     return idx.astype(int)
 
 
-def _parse_search_radius(search_radius) -> Optional[float]:
-    """Convert configured search radius to a scalar in KDTree space.
-
-    KDTree uses anisometrized coordinates (rotation + anisotropy already applied).
-    If search_radius_m is [Rmaj,Rmid,Rmin], the KDTree radius is Rmaj.
-    """
+def _normalize_search_radius(search_radius) -> np.ndarray | None:
     if search_radius is None:
         return None
-    if isinstance(search_radius, (list, tuple, np.ndarray)):
-        r = np.array(search_radius, dtype=float).reshape(-1)
-        if r.size != 3:
-            raise ValueError("search_radius_m must be scalar or length-3 [Rmaj,Rmid,Rmin]")
-        if (r <= 0).any():
-            raise ValueError(f"search_radius_m must be positive, got {r.tolist()}")
-        return float(r[0])
-    r = float(search_radius)
-    if r <= 0:
-        raise ValueError(f"search_radius_m must be positive, got {r}")
+    r = np.array(search_radius, dtype=float).reshape(-1)
+    if r.size == 0:
+        return None
+    if (r <= 0).any():
+        raise ValueError(f"search_radius_m must be positive, got {r.tolist()}")
     return r
+
+
+def _project_to_orebody_axes(coords: np.ndarray, config: dict | None) -> np.ndarray:
+    orebody = orebody_from_config(config)
+    if not orebody:
+        raise ValueError("Ellipsoidal search_radius_m requires orebody orientation in config")
+
+    strike_deg = orebody.get('strike_deg')
+    dip_deg = orebody.get('dip_deg')
+    dip_direction_deg = orebody.get('dip_direction_deg')
+    dip_positive_down = bool(orebody.get('dip_positive_down', True))
+    if strike_deg is None or dip_deg is None:
+        raise ValueError("Ellipsoidal search_radius_m requires strike_deg and dip_deg")
+
+    axes = build_orebody_axes(
+        float(strike_deg),
+        float(dip_deg),
+        float(dip_direction_deg) if dip_direction_deg is not None else None,
+        dip_positive_down=dip_positive_down,
+    )
+    basis = np.vstack([axes['strike'], axes['dip'], axes['normal']])
+    return coords @ basis.T
+
+
+def _build_search_points(coords: np.ndarray, search_radius, config: dict | None) -> tuple[np.ndarray, Optional[float], dict]:
+    radii = _normalize_search_radius(search_radius)
+    if radii is None:
+        return coords.astype(float), None, {'mode': 'global', 'radii_m': None}
+    if radii.size == 1:
+        return coords.astype(float), float(radii[0]), {'mode': 'scalar', 'radii_m': [float(radii[0])]}
+    if radii.size != 3:
+        raise ValueError("search_radius_m must be scalar or length-3 [strike, dip, normal]")
+
+    projected = _project_to_orebody_axes(coords, config)
+    scaled = projected / radii.reshape(1, 3)
+    return scaled.astype(float), 1.0, {'mode': 'ellipsoid', 'radii_m': radii.tolist()}
+
+
+def _reshape_realization_grid(values: np.ndarray, grid_shape: tuple[int, int, int]) -> np.ndarray:
+    arr = np.asarray(values)
+    if arr.shape == grid_shape:
+        return arr
+    if arr.ndim == 1 and arr.size == int(np.prod(grid_shape)):
+        return arr.reshape(grid_shape)
+    raise ValueError(f"Unexpected realization shape {arr.shape}; expected {grid_shape} or flat size {int(np.prod(grid_shape))}")
+
+
+def _embed_realization_grid(
+    values: np.ndarray,
+    grid_shape: tuple[int, int, int],
+    flat_indices: np.ndarray | None = None,
+) -> np.ndarray:
+    arr = np.asarray(values)
+    if flat_indices is None:
+        return _reshape_realization_grid(arr, grid_shape)
+    flat_indices = np.asarray(flat_indices, dtype=int).reshape(-1)
+    if arr.ndim != 1 or arr.size != flat_indices.size:
+        raise ValueError(
+            f"Masked realization has shape {arr.shape}; expected flat size {flat_indices.size}"
+        )
+    embedded = np.full(int(np.prod(grid_shape)), np.nan, dtype=arr.dtype)
+    embedded[flat_indices] = arr
+    return embedded.reshape(grid_shape)
+
+
+def _is_memory_pressure_error(exc: Exception) -> bool:
+    text = f"{type(exc).__name__}: {exc}".lower()
+    return (
+        isinstance(exc, MemoryError)
+        or "bad_alloc" in text
+        or "paging file" in text
+        or "cannot allocate memory" in text
+        or "out of memory" in text
+    )
+
+
+def _checkpoint_paths(output_dir: str | os.PathLike | None) -> dict[str, Path] | None:
+    if output_dir is None:
+        return None
+    root = Path(output_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    return {
+        "grade": root / "sgs_reals_checkpoint.npy",
+        "ns": root / "sgs_reals_ns_checkpoint.npy",
+        "state": root / "sgs_checkpoint_state.json",
+    }
+
+
+def _load_checkpoint_state(paths: dict[str, Path], shape: tuple[int, ...]) -> dict:
+    state_path = paths["state"]
+    if not state_path.exists():
+        return {"shape": list(shape), "completed_realizations": []}
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except Exception:
+        logger.warning("Checkpoint state file is unreadable; starting with a clean checkpoint.")
+        return {"shape": list(shape), "completed_realizations": []}
+    if tuple(state.get("shape", [])) != tuple(shape):
+        logger.warning("Checkpoint shape mismatch; ignoring stale checkpoint state.")
+        return {"shape": list(shape), "completed_realizations": []}
+    return state
+
+
+def _write_checkpoint_state(paths: dict[str, Path], shape: tuple[int, ...], completed: set[int], status: str) -> None:
+    payload = {
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
+        "shape": list(shape),
+        "completed_realizations": sorted(int(i) for i in completed),
+        "completed_count": len(completed),
+        "status": status,
+    }
+    paths["state"].write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _init_checkpoint_arrays(
+    output_dir: str | os.PathLike | None,
+    shape: tuple[int, ...],
+) -> tuple[np.ndarray, np.ndarray, set[int], dict[str, Path] | None]:
+    paths = _checkpoint_paths(output_dir)
+    if paths is None:
+        return np.zeros(shape, dtype=np.float32), np.zeros(shape, dtype=np.float32), set(), None
+
+    state = _load_checkpoint_state(paths, shape)
+    completed = {int(i) for i in state.get("completed_realizations", [])}
+
+    mode = "r+" if paths["grade"].exists() and paths["ns"].exists() else "w+"
+    grade = np.lib.format.open_memmap(paths["grade"], mode=mode, dtype=np.float32, shape=shape)
+    ns = np.lib.format.open_memmap(paths["ns"], mode=mode, dtype=np.float32, shape=shape)
+
+    if mode == "w+":
+        grade[:] = np.nan
+        ns[:] = np.nan
+        grade.flush()
+        ns.flush()
+        _write_checkpoint_state(paths, shape, completed=set(), status="running")
+    else:
+        logger.info(
+            "Resuming from SGS checkpoint: %d/%d realizations already completed.",
+            len(completed),
+            shape[0],
+        )
+
+    return grade, ns, completed, paths
+
+
+def _store_realization_checkpoint(
+    full_reals: np.ndarray,
+    full_reals_ns: np.ndarray,
+    checkpoint_paths: dict[str, Path] | None,
+    checkpoint_shape: tuple[int, ...],
+    completed: set[int],
+    idx: int,
+    real_data: np.ndarray,
+    real_ns: np.ndarray,
+    flat_indices: np.ndarray | None = None,
+) -> None:
+    full_reals[idx] = _embed_realization_grid(real_data, checkpoint_shape[1:], flat_indices=flat_indices)
+    full_reals_ns[idx] = _embed_realization_grid(real_ns, checkpoint_shape[1:], flat_indices=flat_indices)
+    completed.add(int(idx))
+    if checkpoint_paths is not None:
+        if hasattr(full_reals, "flush"):
+            full_reals.flush()
+        if hasattr(full_reals_ns, "flush"):
+            full_reals_ns.flush()
+        _write_checkpoint_state(checkpoint_paths, checkpoint_shape, completed, status="running")
+
+
+def _local_progress_dir(output_dir: str | os.PathLike | None) -> Path | None:
+    if output_dir is None:
+        return None
+    root = Path(output_dir) / "local_resume"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _local_progress_path(output_dir: str | os.PathLike | None, progress_key: str | None) -> Path | None:
+    if not progress_key:
+        return None
+    root = _local_progress_dir(output_dir)
+    if root is None:
+        return None
+    safe_key = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(progress_key))
+    return root / f"{safe_key}.npz"
+
+
+def _load_local_progress(
+    output_dir: str | os.PathLike | None,
+    progress_key: str | None,
+    total_nodes: int,
+) -> dict | None:
+    path = _local_progress_path(output_dir, progress_key)
+    if path is None or not path.exists():
+        return None
+    try:
+        with np.load(path, allow_pickle=False) as payload:
+            sim_vals = np.asarray(payload["sim_vals"], dtype=np.float32)
+            next_pos = int(payload["next_pos"][()])
+            under_min_hits = int(payload["under_min_hits"][()])
+            zero_neighbor_hits = int(payload["zero_neighbor_hits"][()]) if "zero_neighbor_hits" in payload else 0
+            neighbor_sum = float(payload["neighbor_sum"][()])
+            neighbor_count = int(payload["neighbor_count"][()])
+            rng_state_json = str(payload["rng_state_json"][()])
+    except Exception:
+        logger.warning("Local SGS progress file is unreadable for %s; ignoring partial checkpoint.", progress_key)
+        return None
+
+    if sim_vals.shape != (int(total_nodes),):
+        logger.warning("Local SGS progress shape mismatch for %s; ignoring partial checkpoint.", progress_key)
+        return None
+    if next_pos < 0 or next_pos > int(total_nodes):
+        logger.warning("Local SGS progress node count is invalid for %s; ignoring partial checkpoint.", progress_key)
+        return None
+
+    try:
+        rng_state = json.loads(rng_state_json)
+    except Exception:
+        logger.warning("Local SGS RNG state is unreadable for %s; ignoring partial checkpoint.", progress_key)
+        return None
+
+    return {
+        "sim_vals": sim_vals.astype(float, copy=False),
+        "next_pos": next_pos,
+        "under_min_hits": under_min_hits,
+        "zero_neighbor_hits": zero_neighbor_hits,
+        "neighbor_sum": neighbor_sum,
+        "neighbor_count": neighbor_count,
+        "rng_state": rng_state,
+        "path": path,
+    }
+
+
+def _write_local_progress(
+    output_dir: str | os.PathLike | None,
+    progress_key: str | None,
+    sim_vals: np.ndarray,
+    next_pos: int,
+    under_min_hits: int,
+    zero_neighbor_hits: int,
+    neighbor_sum: float,
+    neighbor_count: int,
+    rng_state: dict,
+) -> None:
+    path = _local_progress_path(output_dir, progress_key)
+    if path is None:
+        return
+    with tempfile.NamedTemporaryFile(dir=str(path.parent), suffix=".npz", delete=False) as tmp:
+        np.savez(
+            tmp,
+            sim_vals=np.asarray(sim_vals, dtype=np.float32),
+            next_pos=np.asarray(int(next_pos), dtype=np.int64),
+            under_min_hits=np.asarray(int(under_min_hits), dtype=np.int64),
+            zero_neighbor_hits=np.asarray(int(zero_neighbor_hits), dtype=np.int64),
+            neighbor_sum=np.asarray(float(neighbor_sum), dtype=np.float64),
+            neighbor_count=np.asarray(int(neighbor_count), dtype=np.int64),
+            rng_state_json=np.asarray(json.dumps(rng_state), dtype=str),
+        )
+        tmp_path = Path(tmp.name)
+    os.replace(tmp_path, path)
+
+
+def _clear_local_progress(output_dir: str | os.PathLike | None, progress_key: str | None) -> None:
+    path = _local_progress_path(output_dir, progress_key)
+    if path is None:
+        return
+    try:
+        if path.exists():
+            path.unlink()
+    except OSError:
+        logger.warning("Failed to remove local SGS progress file for %s", progress_key)
 
 
 def run_single_realization_local(
     real_idx,
     seed,
-    cond_pos,
+    cond_search_points,
+    cond_cov_points,
     cond_val,
-    grid_points,
+    grid_search_points,
+    grid_cov_points,
     vario_model,
     nst,
     search_radius=None,
@@ -305,92 +544,151 @@ def run_single_realization_local(
     min_neighbors=None,
     update_every=200,
     log_every=2000,
+    checkpoint_every=5000,
     jitter=1e-10,
-    expand_factor=1.5,
-    expand_max_steps=4,
+    require_full_neighborhood=False,
+    allow_zero_neighbor_fallback=False,
+    output_dir=None,
+    progress_key=None,
 ):
     rng = np.random.default_rng(seed + real_idx)
+    order = rng.permutation(grid_search_points.shape[0])
 
-    known_points = cond_pos.copy()
+    progress = _load_local_progress(output_dir, progress_key, grid_search_points.shape[0])
+    if progress is not None:
+        sim_vals = progress["sim_vals"]
+        start_pos = int(progress["next_pos"])
+        under_min_hits = int(progress["under_min_hits"])
+        zero_neighbor_hits = int(progress.get("zero_neighbor_hits", 0))
+        neighbor_sum = float(progress["neighbor_sum"])
+        neighbor_count = int(progress["neighbor_count"])
+        rng.bit_generator.state = progress["rng_state"]
+        logger.info(
+            "Resuming local SGS task %s at node %d/%d",
+            progress_key or f"real_{real_idx + 1}",
+            start_pos,
+            grid_search_points.shape[0],
+        )
+    else:
+        sim_vals = np.full(grid_search_points.shape[0], np.nan, dtype=float)
+        start_pos = 0
+        under_min_hits = 0
+        zero_neighbor_hits = 0
+        neighbor_sum = 0.0
+        neighbor_count = 0
+        _write_local_progress(
+            output_dir,
+            progress_key,
+            sim_vals,
+            next_pos=0,
+            under_min_hits=0,
+            zero_neighbor_hits=0,
+            neighbor_sum=0.0,
+            neighbor_count=0,
+            rng_state=rng.bit_generator.state,
+        )
+
+    known_search_points = cond_search_points.copy()
+    known_cov_points = cond_cov_points.copy()
     known_vals = cond_val.copy()
 
-    tree = cKDTree(known_points)
-    base_radius = _parse_search_radius(search_radius)
+    if start_pos > 0:
+        completed_nodes = order[:start_pos]
+        known_search_points = np.vstack([known_search_points, grid_search_points[completed_nodes]])
+        known_cov_points = np.vstack([known_cov_points, grid_cov_points[completed_nodes]])
+        known_vals = np.concatenate([known_vals, sim_vals[completed_nodes]])
 
-    order = rng.permutation(grid_points.shape[0])
-    sim_vals = np.zeros(grid_points.shape[0], dtype=float)
-    new_points = []
+    tree = cKDTree(known_search_points)
+    base_radius = search_radius
+
+    new_search_points = []
+    new_cov_points = []
     new_vals = []
 
-    total_nodes = grid_points.shape[0]
-    fallback_hits = 0
-    expand_hits = 0
-    neighbor_counts = []
-    for idx, node_idx in enumerate(order):
-        target_pt = grid_points[node_idx]
-        r_use = base_radius
-        neighbor_idx = _select_neighbors(tree, known_points, target_pt, r_use, max_neighbors)
+    total_nodes = grid_search_points.shape[0]
+    for pos in range(start_pos, total_nodes):
+        node_idx = int(order[pos])
+        target_search_pt = grid_search_points[node_idx]
+        target_cov_pt = grid_cov_points[node_idx]
+        neighbor_idx = _select_neighbors(tree, known_search_points, target_search_pt, base_radius, max_neighbors)
 
         if min_neighbors is not None and neighbor_idx.size < min_neighbors:
-            if r_use is not None:
-                for _ in range(expand_max_steps):
-                    r_use *= expand_factor
-                    neighbor_idx = _select_neighbors(tree, known_points, target_pt, r_use, max_neighbors)
-                    if neighbor_idx.size >= min_neighbors:
-                        expand_hits += 1
-                        break
-
-            if neighbor_idx.size < min_neighbors and known_points.shape[0] > 0:
-                dists = np.linalg.norm(known_points - target_pt, axis=1)
-                neighbor_idx = np.argsort(dists)[:min(min_neighbors, known_points.shape[0])]
-                fallback_hits += 1
+            under_min_hits += 1
+            if require_full_neighborhood and neighbor_idx.size == 0 and not allow_zero_neighbor_fallback:
+                raise RuntimeError(
+                    f"Realization {real_idx + 1}: fixed neighborhood found no neighbors "
+                    f"for a simulated node; minimum configured target is {min_neighbors}"
+                )
 
         if neighbor_idx.size == 0:
+            zero_neighbor_hits += 1
             mean = 0.0
             variance = vario_model.sill
         else:
-            neighbor_pts = known_points[neighbor_idx]
+            neighbor_pts = known_cov_points[neighbor_idx]
             neighbor_vals = known_vals[neighbor_idx]
-            mean, variance = _krige_local(vario_model, neighbor_pts, neighbor_vals, target_pt, jitter=jitter)
+            mean, variance = _krige_local(vario_model, neighbor_pts, neighbor_vals, target_cov_pt, jitter=jitter)
 
-        neighbor_counts.append(neighbor_idx.size)
+        neighbor_sum += float(neighbor_idx.size)
+        neighbor_count += 1
 
         sim_val = mean + rng.normal() * np.sqrt(max(variance, 0.0))
         sim_vals[node_idx] = sim_val
 
-        new_points.append(target_pt)
+        new_search_points.append(target_search_pt)
+        new_cov_points.append(target_cov_pt)
         new_vals.append(sim_val)
 
-        if log_every and (idx + 1) % log_every == 0:
+        if log_every and (pos + 1) % log_every == 0:
             logger.info(
                 "Realization %d: %d/%d nodes simulated",
                 real_idx + 1,
-                idx + 1,
+                pos + 1,
                 total_nodes,
             )
 
-        if (idx + 1) % update_every == 0:
-            known_points = np.vstack([known_points, np.array(new_points)])
+        if (pos + 1) % update_every == 0:
+            known_search_points = np.vstack([known_search_points, np.array(new_search_points)])
+            known_cov_points = np.vstack([known_cov_points, np.array(new_cov_points)])
             known_vals = np.concatenate([known_vals, np.array(new_vals)])
-            tree = cKDTree(known_points)
-            new_points = []
+            tree = cKDTree(known_search_points)
+            new_search_points = []
+            new_cov_points = []
             new_vals = []
 
-    if new_points:
-        known_points = np.vstack([known_points, np.array(new_points)])
+        if checkpoint_every and ((pos + 1) % checkpoint_every == 0 or (pos + 1) == total_nodes):
+            _write_local_progress(
+                output_dir,
+                progress_key,
+                sim_vals,
+                next_pos=pos + 1,
+                under_min_hits=under_min_hits,
+                zero_neighbor_hits=zero_neighbor_hits,
+                neighbor_sum=neighbor_sum,
+                neighbor_count=neighbor_count,
+                rng_state=rng.bit_generator.state,
+            )
+
+    if new_search_points:
+        known_search_points = np.vstack([known_search_points, np.array(new_search_points)])
+        known_cov_points = np.vstack([known_cov_points, np.array(new_cov_points)])
         known_vals = np.concatenate([known_vals, np.array(new_vals)])
 
     # Back-transform from normal scores to original units
     real_data = nst.back_transform(sim_vals)
-    return real_idx, real_data.astype(np.float32), {
-        'avg_neighbors': float(np.mean(neighbor_counts)) if neighbor_counts else 0.0,
-        'fallback_pct': float(fallback_hits / max(1, len(order))) * 100,
-        'expand_pct': float(expand_hits / max(1, len(order))) * 100,
+    return real_idx, real_data.astype(np.float32), sim_vals.astype(np.float32), {
+        'avg_neighbors': float(neighbor_sum / max(1, neighbor_count)),
+        'under_min_neighbors_pct': float(under_min_hits / max(1, total_nodes)) * 100,
+        'zero_neighbor_pct': float(zero_neighbor_hits / max(1, total_nodes)) * 100,
+        'zero_neighbor_hits': int(zero_neighbor_hits),
+        'active_nodes': int(total_nodes),
     }
 
 
 def run_sgs(domain_data, grid_def, vario_model, nst, n_realizations=100, seed=1337, n_jobs=-1,
-            chunk_size=None, search_radius=None, max_neighbors=None, min_neighbors=None, config=None):
+            chunk_size=None, search_radius=None, max_neighbors=None, min_neighbors=None,
+            update_every=1, config=None, output_dir=None, grid_mask=None,
+            require_full_neighborhood=False, checkpoint_every=5000):
     """
     Run Sequential Gaussian Simulation with proper sequential conditioning.
 
@@ -432,9 +730,26 @@ def run_sgs(domain_data, grid_def, vario_model, nst, n_realizations=100, seed=13
 
     nx, ny, nz = len(x_ax), len(y_ax), len(z_ax)
     n_cells = nx * ny * nz
+    grid_shape = (nx, ny, nz)
+    flat_indices = None
+    active_cell_count = n_cells
 
-    # Initialize output array
-    full_reals = np.zeros((n_realizations, nx, ny, nz), dtype=np.float32)
+    if grid_mask is not None:
+        mask = np.asarray(grid_mask, dtype=bool)
+        if mask.shape != grid_shape:
+            raise ValueError(f"grid_mask shape {mask.shape} does not match grid shape {grid_shape}")
+        flat_indices = np.flatnonzero(mask.reshape(-1))
+        active_cell_count = int(flat_indices.size)
+        if active_cell_count == 0:
+            raise ValueError("grid_mask selects zero simulation cells")
+
+    use_local_sgs = search_radius is not None or max_neighbors is not None or min_neighbors is not None
+
+    checkpoint_shape = (n_realizations, nx, ny, nz)
+    full_reals, full_reals_ns, completed, checkpoint_paths = _init_checkpoint_arrays(output_dir, checkpoint_shape)
+    pending = [i for i in range(n_realizations) if i not in completed]
+    if not pending:
+        logger.info("All realizations already present in checkpoint; reusing existing SGS checkpoint arrays.")
 
     # Set up parallel processing
     if n_jobs == -1 and JOBLIB_AVAILABLE:
@@ -443,10 +758,19 @@ def run_sgs(domain_data, grid_def, vario_model, nst, n_realizations=100, seed=13
     elif not JOBLIB_AVAILABLE:
         n_jobs = 1
 
+    if not use_local_sgs and n_jobs != 1:
+        logger.info(
+            "Using sequential gstools path with reusable kriging state for fixed global simulation."
+        )
+        n_jobs = 1
+
     logger.info(f"Running {n_realizations} SGS realizations")
     logger.info(f"Grid dimensions: {nx} x {ny} x {nz} = {n_cells:,} cells")
+    if flat_indices is not None:
+        logger.info(f"Active masked cells: {active_cell_count:,}")
     logger.info(f"Conditioning data: {len(cond_val)} samples")
     logger.info(f"Parallel jobs: {n_jobs if JOBLIB_AVAILABLE else 1}")
+    logger.info(f"Completed realizations found in checkpoint: {len(completed)}")
     if search_radius is not None:
         logger.info(f"Configured search radius: {search_radius}")
     if max_neighbors is not None or min_neighbors is not None:
@@ -459,46 +783,212 @@ def run_sgs(domain_data, grid_def, vario_model, nst, n_realizations=100, seed=13
 
     start_time = time.time()
 
-    if JOBLIB_AVAILABLE and n_jobs > 1:
+    parallel_completed = False
+    if JOBLIB_AVAILABLE and n_jobs > 1 and pending:
         # Parallel execution across realizations
-        logger.info(f"Running {n_realizations} realizations in parallel...")
+        logger.info(f"Running {len(pending)} pending realizations in parallel...")
 
-        results = Parallel(n_jobs=n_jobs, verbose=0)(
-            delayed(run_single_realization)(
-                i, seed, cond_pos, cond_val, x_ax, y_ax, z_ax, vario_model, nst, chunk_size,
-                search_radius=search_radius, max_neighbors=max_neighbors, min_neighbors=min_neighbors
-            )
-            for i in tqdm(range(n_realizations), desc="SGS", unit="real", disable=not TQDM_AVAILABLE)
-        )
+        try:
+            if use_local_sgs:
+                grid_points_full = np.array(np.meshgrid(x_ax, y_ax, z_ax, indexing='ij')).reshape(3, -1).T
+                grid_points = grid_points_full[flat_indices] if flat_indices is not None else grid_points_full
+                cond_points = np.vstack(cond_pos).T
+                cond_cov_points = _build_anisometric_points(vario_model, cond_points.T)
+                grid_cov_points = _build_anisometric_points(vario_model, grid_points.T)
+                cond_search_points, search_radius_local, search_meta = _build_search_points(cond_points, search_radius, config)
+                grid_search_points, _, _ = _build_search_points(grid_points, search_radius, config)
+                logger.info("Local SGS search mode: %s", search_meta)
+                logger.info(
+                    "Using shared-memory threads for local SGS to avoid process-copy memory pressure."
+                )
+                future_map = {}
+                with ThreadPoolExecutor(max_workers=n_jobs, thread_name_prefix="sgs") as executor:
+                    for i in pending:
+                        future = executor.submit(
+                            run_single_realization_local,
+                            i,
+                            seed,
+                            cond_search_points,
+                            cond_cov_points,
+                            cond_val,
+                            grid_search_points,
+                            grid_cov_points,
+                            vario_model,
+                            nst,
+                            search_radius=search_radius_local,
+                            max_neighbors=max_neighbors,
+                            min_neighbors=min_neighbors,
+                            update_every=update_every,
+                            checkpoint_every=checkpoint_every,
+                            require_full_neighborhood=require_full_neighborhood,
+                            output_dir=output_dir,
+                            progress_key=f"real_{i:04d}",
+                        )
+                        future_map[future] = i
+                    iterator = as_completed(future_map)
+                    if TQDM_AVAILABLE:
+                        iterator = tqdm(iterator, total=len(future_map), desc="SGS", unit="real")
+                    for future in iterator:
+                        idx, real_data, real_ns, stats = future.result()
+                        _store_realization_checkpoint(
+                            full_reals,
+                            full_reals_ns,
+                            checkpoint_paths,
+                            checkpoint_shape,
+                            completed,
+                            idx,
+                            real_data,
+                            real_ns,
+                            flat_indices=flat_indices,
+                        )
+                        logger.info(
+                            "Completed realization %d/%d (avg neighbors %.1f, under-min %.1f%%, checkpointed %d/%d)",
+                            idx + 1,
+                            n_realizations,
+                            stats.get('avg_neighbors', 0.0),
+                            stats.get('under_min_neighbors_pct', 0.0),
+                            len(completed),
+                            n_realizations,
+                        )
+                        _clear_local_progress(output_dir, f"real_{idx:04d}")
+            else:
+                results = Parallel(n_jobs=n_jobs, verbose=0)(
+                    delayed(run_single_realization)(
+                        i, seed, cond_pos, cond_val, x_ax, y_ax, z_ax, vario_model, nst, chunk_size,
+                        search_radius=search_radius, max_neighbors=max_neighbors,
+                        min_neighbors=min_neighbors, update_every=update_every
+                    )
+                    for i in tqdm(pending, desc="SGS", unit="real", disable=not TQDM_AVAILABLE)
+                )
+                for idx, real_data, real_ns, *rest in results:
+                    _store_realization_checkpoint(
+                        full_reals,
+                        full_reals_ns,
+                        checkpoint_paths,
+                        checkpoint_shape,
+                        completed,
+                        idx,
+                        real_data,
+                        real_ns,
+                        flat_indices=flat_indices,
+                    )
 
-        for idx, real_data in results:
-            full_reals[idx] = real_data
+            logger.info("Parallel processing complete!")
+            parallel_completed = True
+        except Exception as exc:
+            if use_local_sgs and _is_memory_pressure_error(exc):
+                logger.exception(
+                    "Parallel local SGS hit memory pressure; retrying sequentially with the same scientific parameters."
+                )
+                print(
+                    ">>> Parallel SGS hit memory pressure; retrying sequentially with the same parameters",
+                    flush=True,
+                )
+                n_jobs = 1
+            else:
+                raise
 
-        logger.info("Parallel processing complete!")
-    else:
+    if not parallel_completed and pending:
         # Sequential execution
         logger.info("Running realizations sequentially...")
 
         if TQDM_AVAILABLE:
-            pbar = tqdm(range(n_realizations), desc="SGS", unit="real")
+            pbar = tqdm(pending, desc="SGS", unit="real")
         else:
-            pbar = range(n_realizations)
+            pbar = pending
 
-        for i in pbar:
-            idx, real_data = run_single_realization(
-                i, seed, cond_pos, cond_val, x_ax, y_ax, z_ax, vario_model, nst, chunk_size,
-                search_radius=search_radius, max_neighbors=max_neighbors, min_neighbors=min_neighbors
-            )
-            full_reals[idx] = real_data
+        if use_local_sgs:
+            grid_points_full = np.array(np.meshgrid(x_ax, y_ax, z_ax, indexing='ij')).reshape(3, -1).T
+            grid_points = grid_points_full[flat_indices] if flat_indices is not None else grid_points_full
+            cond_points = np.vstack(cond_pos).T
+            cond_cov_points = _build_anisometric_points(vario_model, cond_points.T)
+            grid_cov_points = _build_anisometric_points(vario_model, grid_points.T)
+            cond_search_points, search_radius_local, search_meta = _build_search_points(cond_points, search_radius, config)
+            grid_search_points, _, _ = _build_search_points(grid_points, search_radius, config)
+            logger.info("Local SGS search mode: %s", search_meta)
+            for i in pbar:
+                idx, real_data, real_ns, stats = run_single_realization_local(
+                    i,
+                    seed,
+                    cond_search_points,
+                    cond_cov_points,
+                    cond_val,
+                    grid_search_points,
+                    grid_cov_points,
+                    vario_model,
+                    nst,
+                    search_radius=search_radius_local,
+                    max_neighbors=max_neighbors,
+                    min_neighbors=min_neighbors,
+                    update_every=update_every,
+                    checkpoint_every=checkpoint_every,
+                    require_full_neighborhood=require_full_neighborhood,
+                    output_dir=output_dir,
+                    progress_key=f"real_{i:04d}",
+                )
+                _store_realization_checkpoint(
+                    full_reals,
+                    full_reals_ns,
+                    checkpoint_paths,
+                    checkpoint_shape,
+                    completed,
+                    idx,
+                    real_data,
+                    real_ns,
+                    flat_indices=flat_indices,
+                )
+                if stats:
+                    logger.info(
+                        "Realization %d: avg neighbors %.1f, under-min %.1f%%, checkpointed %d/%d",
+                        idx + 1,
+                        stats.get('avg_neighbors', 0.0),
+                        stats.get('under_min_neighbors_pct', 0.0),
+                        len(completed),
+                        n_realizations,
+                    )
+                _clear_local_progress(output_dir, f"real_{idx:04d}")
 
-            if not TQDM_AVAILABLE and (i + 1) % 10 == 0:
-                logger.info(f"  Completed {i+1}/{n_realizations}")
+                if not TQDM_AVAILABLE and (i + 1) % 10 == 0:
+                    logger.info(f"  Completed {i+1}/{n_realizations}")
+        else:
+            krige = gs.Krige(vario_model, cond_pos=cond_pos, cond_val=cond_val)
+            srf = gs.CondSRF(krige)
+            for i in pbar:
+                if chunk_size:
+                    field = srf.structured((x_ax, y_ax, z_ax), seed=seed + i, chunk_size=chunk_size)
+                else:
+                    field = srf.structured((x_ax, y_ax, z_ax), seed=seed + i)
+                if flat_indices is not None:
+                    field = np.asarray(field, dtype=np.float32)
+                    field_flat = field.reshape(-1)
+                    active_field = field_flat[flat_indices]
+                    data_field = nst.back_transform(field).astype(np.float32).reshape(-1)[flat_indices]
+                    ns_field = active_field.astype(np.float32)
+                else:
+                    data_field = nst.back_transform(field).astype(np.float32)
+                    ns_field = field.astype(np.float32)
+                _store_realization_checkpoint(
+                    full_reals,
+                    full_reals_ns,
+                    checkpoint_paths,
+                    checkpoint_shape,
+                    completed,
+                    i,
+                    data_field,
+                    ns_field,
+                    flat_indices=flat_indices,
+                )
+
+                if not TQDM_AVAILABLE and (i + 1) % 10 == 0:
+                    logger.info(f"  Completed {i+1}/{n_realizations}")
 
     total_elapsed = time.time() - start_time
     logger.info("-" * 60)
     logger.info(f"SGS Complete: {n_realizations} realizations in {total_elapsed/60:.1f} minutes")
     logger.info(f"Average time per realization: {total_elapsed/n_realizations:.1f} seconds")
     logger.info(f"Output shape: {full_reals.shape}")
+    if checkpoint_paths is not None:
+        _write_checkpoint_state(checkpoint_paths, checkpoint_shape, completed, status="completed")
 
     if config is not None:
         trend_cfg = config.get("trend", {}) or {}
@@ -523,14 +1013,16 @@ def run_sgs(domain_data, grid_def, vario_model, nst, n_realizations=100, seed=13
 
     return {
         'realizations': full_reals,
+        'realizations_ns': full_reals_ns,
         'x': x_ax, 'y': y_ax, 'z': z_ax,
         'model': vario_model,
         'grid_def': grid_def,
+        'grid_mask': grid_mask,
         'timing': {'total_seconds': total_elapsed, 'avg_per_real': total_elapsed/n_realizations}
     }
 
 
-def run(data_path=None, data_dir='data', config=None, output_dir='outputs/grids'):
+def run(data_path=None, data_dir='data', config=None, output_dir='outputs/grids', grid_mask=None):
     """Run SGS simulation."""
     if not GSTOOLS_AVAILABLE:
         raise RuntimeError("gstools is required for SGS")
@@ -541,19 +1033,28 @@ def run(data_path=None, data_dir='data', config=None, output_dir='outputs/grids'
         from .normal_score import run as run_nst
         _, df = run_nst(data_dir=data_dir, config=config)
 
-    validate_conditioning_data(df)
+    grade_field = (config or {}).get('grade_field', 'tgc_pct')
+    validate_conditioning_data(df, grade_field=grade_field)
 
     from .variography import run as run_variography
-    vario_model, _, _ = run_variography(data_path=data_path, data_dir=data_dir, config=config)
+    vario_model, _, _ = run_variography(
+        data_path=data_path,
+        data_dir=data_dir,
+        config=config,
+        output_dir=os.path.join(os.path.dirname(output_dir), "figures"),
+    )
 
     from .normal_score import NormalScoreTransform
     nst = NormalScoreTransform()
 
     if 'tgc_ns' not in df.columns:
         weights = df['decluster_weight'].values if 'decluster_weight' in df.columns else None
-        nst.fit(df['tgc_pct'].values, weights)
+        nst.fit(df[grade_field].values, weights)
     else:
-        nst.fit(df['tgc_pct'].values, df['decluster_weight'].values if 'decluster_weight' in df.columns else None)
+        nst.fit(
+            df[grade_field].values,
+            df['decluster_weight'].values if 'decluster_weight' in df.columns else None
+        )
 
     sim_config = config.get('simulation', {}) if config else {}
     n_real = sim_config.get('n_real', 100)
@@ -573,14 +1074,16 @@ def run(data_path=None, data_dir='data', config=None, output_dir='outputs/grids'
         raise RuntimeError("Invalid variogram parameters")
 
     # Get number of parallel jobs from config
-    n_jobs = sim_config.get('n_jobs', -1)
+    requested_n_jobs = sim_config.get('n_jobs', -1)
+    n_jobs = requested_n_jobs
     if n_jobs == -1 and JOBLIB_AVAILABLE:
         import multiprocessing
         n_jobs = min(multiprocessing.cpu_count(), n_real)
 
-    # Reduce parallelism for large grids to limit memory pressure
+    # Reduce automatic parallelism for large grids to limit memory pressure,
+    # but honor an explicit user/job configuration such as n_jobs: 7.
     n_cells = grid_def['nx'] * grid_def['ny'] * grid_def['nz']
-    if n_cells >= 200_000:
+    if n_cells >= 200_000 and requested_n_jobs == -1:
         n_jobs = min(n_jobs, 4)
 
     # Chunk kriging calls to avoid massive allocations
@@ -591,6 +1094,12 @@ def run(data_path=None, data_dir='data', config=None, output_dir='outputs/grids'
     search_radius = sim_config.get('search_radius_m')
     max_neighbors = sim_config.get('max_neighbors')
     min_neighbors = sim_config.get('min_neighbors')
+    update_every = int(sim_config.get('local_update_every', 1))
+    checkpoint_every = int(sim_config.get('checkpoint_every', 5000))
+    if update_every < 1:
+        raise ValueError("simulation.local_update_every must be >= 1")
+    if checkpoint_every < 1:
+        raise ValueError("simulation.checkpoint_every must be >= 1")
 
     result = run_sgs(
         df,
@@ -604,12 +1113,19 @@ def run(data_path=None, data_dir='data', config=None, output_dir='outputs/grids'
         search_radius=search_radius,
         max_neighbors=max_neighbors,
         min_neighbors=min_neighbors,
+        update_every=update_every,
         config=config,
+        output_dir=output_dir,
+        grid_mask=grid_mask,
+        require_full_neighborhood=bool(sim_config.get('require_full_neighborhood', False)),
+        checkpoint_every=checkpoint_every,
     )
 
     os.makedirs(output_dir, exist_ok=True)
     from .utils.io import save_grid
     save_grid(result, output_dir, prefix='sgs')
+    if 'realizations_ns' in result:
+        np.save(os.path.join(output_dir, 'sgs_reals_ns.npy'), result['realizations_ns'])
     # Save residual/trend metadata if present
     if 'trend' in df.columns:
         meta_path = os.path.join(output_dir, 'trend_meta.json')
