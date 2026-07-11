@@ -11,7 +11,7 @@
 | 2 m composites | 100 | 4,129 | 7957.70 | Composite support. |
 | Domain composites | 100 | 4,129 | 7957.70 | SGS input: 3,566/382/181. |
 | Geological domains | 100 | 3,566 fresh graphitic; 382 weathered graphitic; 181 host/waste | - | Graphitic-only weathering contrast and host/waste control. |
-| Online Resource 2 | - | 11 worksheets | - | Audit-level run metadata, validation, variogram, convergence, support, contact, occupancy and repeated-null summaries. |
+| Online Resource 2 | - | 13 worksheets | - | Audit-level run metadata, validation, variogram, convergence, support, contact, occupancy and repeated-null summaries. |
 
 ## Table 2. Domain and Grade Summary
 
@@ -40,23 +40,23 @@
 
 ## Table 4. Validation and Information-Content Comparison
 
-| Validation axis | Geology-conditioned evidence | Null or reference comparison | Supported interpretation |
+| Validation axis | Geology-conditioned evidence | Matched reference or null evidence | Supported interpretation |
 |---|---|---|---|
-| Archive-derived reporting support | 55,716 common 25 x 25 x 2 m blocks; fractional lode volume 4.313% | any-intersection 19,286 reporting cells; full-cell core 8,938 cells | Support sensitivity only; the seven-lode mask shares project data and is not independent validation |
-| Support-aligned ensemble means | full box 2.056%; any lode cell 3.783%; fractional lode volume 3.829%; core 3.903% TGC | declustered graphitic composites 3.921% TGC | The apparent full-grid deficit is a reporting-support difference, not direct local validation |
-| Envelope ensemble stability | n=75 probability MAE 0.018; probability r 0.995; spread r 0.942 | 100-realisation envelope reference | Numerical stability at selected reporting support, not predictive calibration |
-| Variogram and envelope-aligned swaths | matched-space variogram weighted RMSE 0.237; graphitic-composite versus envelope P50 swath r 0.777/0.823/0.840 | pair-limited thickness-normal direction retained as caveat | Tests covariance and directional behaviour on matched reporting support |
-| Categorical sensitivity | macro-F1 0.356; balanced accuracy 0.442; graphitic-host ROC-AUC 0.708; raw Brier skill -4.896 | grouped whole-hole folds with zero leakage | Raw categorical products are secondary sensitivity diagnostics, not calibrated reporting boundaries |
-| Full-grid null sensitivity | canonical histogram overlap 0.602; Q-Q RMSE 2.144 | five independent no-domain seed families in Online Resource 2 | Global fit and support-aligned interpretation remain separate evaluation axes |
-| Withheld grade baselines | 500 m block/leave-hole/leave-section RMSE 2.261/2.179/2.232% TGC | simple spatial estimators under held-out support | Bounds local prediction; no blocked rerun of final SGS is claimed |
+| Archive-derived reporting support | 55,716 common 25 x 25 x 2 m blocks; fractional volume 4.313% | six retained lode IDs; L01 contributes 92.99% | Common support is explicit; evidence primarily represents L01 |
+| Support-aligned means | full grid 2.056%; fractional envelope 3.829%; core 3.903% TGC | declustered graphitic composites 3.921% TGC | Full-grid and graphitic-support means answer different volume questions |
+| Matched 20-versus-20 envelope comparison | mean 3.825 (3.814-3.863)%; P(TGC > 3%) 0.656 (0.654-0.665); spread 3.199 (3.183-3.233)%; histogram overlap 0.876 (0.873-0.877); Q-Q RMSE 0.474 (0.459-0.475)% | null mean 3.892 (3.880-3.925)%; P(TGC > 3%) 0.595 (0.593-0.600); spread 5.068 (5.004-5.088)%; overlap 0.925 (0.924-0.928); Q-Q RMSE 0.233 (0.218-0.239)% | Null retains closer marginal fit; conditioning gives higher persistence and narrower conditional spread on identical support |
+| Envelope-aligned directional swaths | canonical subset median strike/down-dip/normal r 0.761/0.822/0.834 | null median 0.734/0.857/0.856 | Directional reproduction is mixed; no overall model winner is assigned |
+| Spatial support pattern | high-spread median nearest-composite distance 90.3 m; 32.5% on footprint edge | persistent-occupancy median distance 40.4 m; joint set 20 columns | Separates cross-package/contact follow-up from recurrent graphitic support |
+| Ensemble and variogram behaviour | n=75 probability MAE 0.018; probability r 0.995; spread r 0.942; full-ensemble swath r 0.777/0.823/0.840 | matched-space variogram weighted RMSE 0.237; thickness-normal direction has two pair-supported lags | Quantifies Monte Carlo and covariance behaviour on selected support |
+| Categorical and withheld validation | macro-F1 0.356; balanced accuracy 0.442; graphitic-host ROC-AUC 0.708 | within-support Brier skill -0.407; 500 m block/leave-hole/leave-section grade RMSE 2.261/2.179/2.232% TGC | Categorical fields rank relative patterns; withheld baselines bound local predictive evidence |
 
 ## Table 5. Practical Decision-Use Matrix for Graphite Exploration and Resource Evaluation
 
-| Product | Geological meaning | Validation support | Appropriate use |
+| Product | Geological meaning | Evidence used | Practical use |
 |---|---|---|---|
-| Archive-derived lode envelope | Common reporting support for the interpreted graphitic corridor | Exact grid alignment, common-footprint and DEM-surface checks | Compare completed SGS summaries inside versus outside the project-derived envelope |
-| Envelope-weighted P50 TGC | Central conditional grade behaviour inside the selected support | Completed ensemble and support-sensitivity brackets | Compare broad graphitic-support sections; not a local grade prediction |
-| P90-P10 TGC spread | Conditional grade range within the selected support | Envelope convergence, variogram reproduction and directional swaths | Identify relative grade-uncertainty zones for geological follow-up |
-| P(TGC > 3%) | Modelled above-threshold occupancy inside the envelope | Completed ensemble and support-aligned maps | Compare relative persistence of modelled above-threshold support |
-| Raw categorical frequencies and entropy | Sensitivity of the local categorical scoring rule | Grouped categorical validation in Online Resource 2 | Audit relative model ambiguity only; do not treat as calibrated boundary probability |
-| Geology-blind null sensitivity | Global-distribution behaviour under a composite alternate configuration | Five independent 20-realisation families | Prevent model choice from relying only on histogram or Q-Q fit |
+| Archive-derived lode envelope | Common volume for the interpreted graphitic corridor | Exact support alignment, common-footprint and DEM checks | Keep grade summaries tied to an explicit geological volume |
+| Persistent P(TGC > 3%) | Above-threshold support recurring across realisations | Completed ensemble, n=75 stability and distance-to-support analysis | Identify corridor segments suitable for step-out confirmation |
+| P90-P10 TGC spread | Conditional grade range inside the envelope | Ensemble convergence, variogram reproduction and directional swaths | Target infill sampling where grade remains variable |
+| Joint persistence and high spread | Graphitic support persists while conditional grade remains broad | Upper-decile spread and P >= 0.80 co-location | Prioritise section review and holes oriented across the package |
+| Raw categorical frequencies and entropy | Relative ambiguity in the archived local class scorer | Hole-grouped validation within mapped search support | Guide re-logging and contact review; keep absolute class calibration separate |
+| Matched geology-blind comparison | Behaviour of an alternate configuration inside the same lode volume | Five independent null seeds and five canonical 20-realisation subsets | Evaluate distribution fit and geological organisation on separate axes |

@@ -4057,138 +4057,293 @@ def _flatten(value, prefix: str = "") -> list[list]:
 
 
 def _write_mme_cover(dst: Path, null_summary: dict) -> None:
-    doc = Document(); sec = doc.sections[0]
-    sec.top_margin = sec.bottom_margin = Inches(0.8); sec.left_margin = sec.right_margin = Inches(0.9)
-    doc.styles["Normal"].font.name = "Times New Roman"; doc.styles["Normal"].font.size = Pt(11)
+    doc = Document()
+    sec = doc.sections[0]
+    sec.top_margin = sec.bottom_margin = Inches(0.8)
+    sec.left_margin = sec.right_margin = Inches(0.9)
+    doc.styles["Normal"].font.name = "Times New Roman"
+    doc.styles["Normal"].font.size = Pt(11)
     doc.add_paragraph(datetime.now().strftime("%d %B %Y"))
     doc.add_paragraph("Editor-in-Chief\nMining, Metallurgy & Exploration")
     doc.add_paragraph(f"Collection: {MME_COLLECTION}")
-    p = doc.add_paragraph(); p.add_run(MME_TITLE).bold = True
+    p = doc.add_paragraph()
+    p.add_run(MME_TITLE).bold = True
     doc.add_paragraph("Dear Editor,")
-    doc.add_paragraph("Please consider this manuscript for the Industrial Minerals: Geology, Extraction and Use collection. "
-        "It addresses a practical graphite-evaluation gap: global grade-distribution agreement does not show whether "
-        "uncertainty resides in graphitic support, contacts, weathering state, package thickness, or TGC spread.")
-    doc.add_paragraph("The completed 100-realisation geology-conditioned ensemble separates these components and tests them "
-        "using support-aligned summaries, categorical validation, variogram reproduction, directional swaths, and repeated "
-        "geology-blind sensitivity runs at common reporting support. The contribution is a decision-oriented uncertainty framework for graphite "
-        "exploration and resource evaluation.")
-    doc.add_paragraph("Five independent 20-realisation null families are reported as seed-level distributions." if null_summary.get("status")=="complete" else
-        "This review copy remains a draft while the five independent null families finish; the generator blocks final submission until all five are available.")
-    doc.add_paragraph("The work is original, is not under consideration elsewhere, and all required disclosures appear in the manuscript.")
-    doc.add_paragraph(f"Sincerely,\n{AUTHOR_NAME}\n{AUTHOR_AFFILIATION}\n{AUTHOR_EMAIL}\nORCID: {AUTHOR_ORCID_URL}")
+    doc.add_paragraph(
+        "Please consider this manuscript for the Industrial Minerals: Geology, Extraction and Use collection. "
+        "It addresses a practical graphite-evaluation problem: a coherent graphitic horizon does not make "
+        "reporting support, contact position and conditional grade spread equally certain."
+    )
+    doc.add_paragraph(
+        "The study evaluates a completed 100-realisation geology-conditioned ensemble inside an explicit "
+        "archive-derived lode envelope and then applies that identical envelope to five independent geology-blind "
+        "families. This matched post-processing separates the effect of reporting volume from model-configuration "
+        "behaviour. The main result is constructive: persistent graphitic support, envelope-edge uncertainty and "
+        "TGC spread become distinct, mappable targets for section review and follow-up drilling, even though the "
+        "alternate configuration reproduces the marginal grade distribution more closely."
+    )
+    doc.add_paragraph(
+        "All five 20-realisation null families and five non-overlapping canonical subsets are reported without "
+        "performance selection. Figures and Online Resources provide the support alignment, spatial diagnostics, "
+        "ensemble behaviour, variogram reproduction and directional swaths needed to audit the interpretation."
+    )
+    doc.add_paragraph(
+        "The work is original, is not under consideration elsewhere, and all required disclosures appear in the manuscript."
+    )
+    doc.add_paragraph(
+        f"Sincerely,\n{AUTHOR_NAME}\n{AUTHOR_AFFILIATION}\n{AUTHOR_EMAIL}\nORCID: {AUTHOR_ORCID_URL}"
+    )
     doc.save(dst)
 
 
 def _write_mme_esm_pdf(dst: Path, null_summary: dict, null_rows: list[dict]) -> None:
     from matplotlib.backends.backend_pdf import PdfPages
     from textwrap import wrap
+
     truth = _first_json(ROOT / "build" / "source_of_truth.submission.json")
     gap = truth.get("validation_gap_summaries", {}) or {}
     cat = gap.get("categorical_domain_grouped_validation", {}) or {}
     envelope = gap.get("archive_lode_envelope", {}) or {}
+    matched = gap.get("archive_lode_matched_null_comparison", {}) or {}
+    spatial = gap.get("archive_lode_spatial_patterns", {}) or {}
     support = gap.get("support_aligned_mean_decomposition", {}) or {}
-    conv = gap.get("ensemble_convergence", {}) or {}
+    conv = gap.get("archive_lode_envelope_convergence", {}) or {}
     n75 = (conv.get("checkpoint_summaries", {}) or {}).get("75", {}) or {}
     vario = gap.get("variogram_reproduction", {}) or {}
     contact = gap.get("signed_graphitic_host_contact", {}) or {}
     overlap = gap.get("spatial_overlap_bootstrap", {}) or {}
     obs = overlap.get("observed", {}) or {}
     within = (cat.get("search_support", {}) or {}).get("within_support", {}) or {}
+    raw_graphitic = cat.get("graphitic_vs_host", {}) or {}
+    recalibrated = raw_graphitic.get("nested_platt_recalibration_sensitivity", {}) or {}
+    canonical_summary = (
+        matched.get("canonical_20_realisation_subsets", {}).get("summary", {}) or {}
+    )
+    matched_null_summary = (
+        matched.get("null_20_realisation_seed_families", {}).get("summary", {}) or {}
+    )
+
+    def median(summary: dict, key: str) -> float:
+        return float((summary.get(key, {}) or {}).get("median", float("nan")))
 
     sections = [
-      ("Online Resource 1: Supplementary Methods and Validation",[
-       MME_TITLE, MME_JOURNAL,
-       f"{AUTHOR_NAME}; {AUTHOR_AFFILIATION}; {AUTHOR_EMAIL}; ORCID {AUTHOR_ORCID_URL}",
-       "Contents: categorical-domain workflow; grouped categorical validation; support decomposition and ensemble convergence; "
-       "variogram/contact/spatial-overlap diagnostics; and repeated no-domain sensitivity.",
-       "This audit-level supplement accompanies Online Resource 2. Proprietary drillhole and categorical-domain arrays are not redistributed."]),
-      ("S1. Categorical-Domain Uncertainty Workflow",[
-       "Fresh graphitic, weathered graphitic, and host/waste categories were sampled before paired grade SGS. Local inverse-distance "
-       "class scores used the 250/200/20 m anisotropic search, at most 20 neighbours, prior weight 2.0, and seed 1337 plus realisation index.",
-       "At cell u, graphitic probability is the realisation frequency of either graphitic class. Normalised Shannon entropy is "
-       "H(u) = -sum[p_k(u) ln p_k(u)] / ln(3). Graphitic thickness aperture is P90[T_G(x,y)] - P10[T_G(x,y)].",
-       "Raw frequencies are interpreted as relative spatial evidence because whole-hole validation does not support calibrated absolute probabilities."]),
-      ("S2. Hole-Grouped Categorical Validation",[
-       f"Five folds held complete drillholes together (seed {cat.get('seed', 20260707)}), with {cat.get('n_holes', 100)} holes, "
-       f"{cat.get('n_composites', 4129)} composites, and zero leakage: {cat.get('zero_hole_leakage', True)}.",
-       f"Three-class macro-F1 = {float(cat.get('macro_f1', float('nan'))):.3f}; balanced accuracy = "
-       f"{float(cat.get('balanced_accuracy', float('nan'))):.3f}; log loss = {float(cat.get('multiclass_log_loss', float('nan'))):.3f}.",
-       f"Graphitic-versus-host raw ROC-AUC = {float(cat.get('graphitic_vs_host', {}).get('roc_auc', 0.708)):.3f}. "
-       f"Within anisotropic search support, n = {int(within.get('n', 3136))}, Brier skill = "
-       f"{float(within.get('brier_skill_score', float('nan'))):.3f}. Absolute probability calibration is not claimed."]),
-      ("S3. Archive-Derived Reporting-Envelope Sensitivity",[
-       f"Only x, y, z, block dimensions, lode identity and topography_z were read from the archived seven-lode block table. The reviewed table checksum is {envelope.get('archive_block_table_sha256','not available')}. Estimated TGC, kriging variance, density, classification, tonnes and contained graphite were excluded.",
-       f"Of {int(envelope.get('archive_block_count',0)):,} archived 25 x 25 x 2 m blocks, {int(envelope.get('common_support_fine_block_count',0)):,} remain after common-footprint and DEM-surface checks. The fractional lode volume occupies {float((envelope.get('support_scenarios',{}).get('fractional_lode_volume',{}) or {}).get('reporting_volume_fraction_pct',float('nan'))):.3f}% of reporting volume.",
-       "The archived geometry is algorithmic, shares project lithology and 3% threshold information with the SGS, and is not the unavailable controlling 28-wireframe MRE interpretation. It is used solely to test reporting-support sensitivity, not independent grade validation."]),
-      ("S3. Support Decomposition and Ensemble Convergence",[
-       f"Valid reporting cells = {int(support.get('valid_cell_count', 322920))}; whole-grid mean = "
-       f"{float(support.get('whole_grid_mean_tgc_pct', float('nan'))):.3f}% TGC; weighted reconstruction error = "
-       f"{float(support.get('reconstruction_error_tgc_pct', float('nan'))):.3g}% TGC.",
-       "Host-dominant, transitional, and graphitic-dominant cell fractions are "
-       + "/".join(f"{float(row.get('cell_fraction_pct', float('nan'))):.2f}%" for row in support.get("classes", []))
-       + "; corresponding means are "
-       + "/".join(f"{float(row.get('mean_tgc_pct', float('nan'))):.3f}%" for row in support.get("classes", [])) + " TGC.",
-       f"At n=75, probability MAE = {float(n75.get('map_metrics', {}).get('probability', {}).get('mae', {}).get('p50', float('nan'))):.3f}, "
-       f"probability correlation = {float(n75.get('map_metrics', {}).get('probability', {}).get('correlation', {}).get('p50', float('nan'))):.3f}, "
-       f"spread correlation = {float(n75.get('map_metrics', {}).get('spread', {}).get('correlation', {}).get('p50', float('nan'))):.3f}, and "
-       f"hotspot Jaccard = {float(n75.get('spread_hotspot_jaccard', {}).get('p50', float('nan'))):.3f}."]),
-      ("S4. Variogram, Contact, and Spatial-Overlap Diagnostics",[
-       f"Matched-space variogram reproduction used {int(vario.get('n_real_eval', 12))} normal-score realisations and gives weighted RMSE "
-       f"{float(vario.get('weighted_rmse', float('nan'))):.3f}. Along-strike and down-dip directions each retain nine usable lags; "
-       "the thickness-normal direction is pair-limited.",
-       f"The signed contact profile contains {int(contact.get('n_composites', 711))} composites around "
-       f"{int(contact.get('contact_count', 134))} transitions in {int(contact.get('contact_holes', 42))} holes. "
-       f"Graphitic minus host-side mean TGC = {float(contact.get('graphitic_minus_host_mean_tgc_pct', float('nan'))):.3f} percentage points.",
-       f"Block-bootstrap Spearman correlations are entropy-spread {float(obs.get('spearman_entropy_spread', float('nan'))):.3f}, "
-       f"thickness-spread {float(obs.get('spearman_thickness_spread', float('nan'))):.3f}, and entropy-thickness "
-       f"{float(obs.get('spearman_entropy_thickness', float('nan'))):.3f}. The joint critical zone contains "
-       f"{float(obs.get('critical_uncertainty_zone_cell_pct', float('nan'))):.2f}% of valid cells. These are descriptive co-location statistics."]),
-      ("S5. Repeated No-Domain Sensitivity",[
-       f"Status: {null_summary.get('status','pending')}. Required independent seeds: 9101, 9201, 9301, 9401, 9501.",
-       "Each family contains 20 no-domain isotropic realisations using direct 50 x 50 x 2 m simulation and 150 m isotropic covariance "
-       "and search, legacy 105/15/195 degree axis labels, and an enabled vertical trend. The canonical ensemble uses finer simulation support, stochastic domains, geological-axis anisotropy, and no grade trend.",
-       "Seed-level mean TGC, histogram overlap, Q-Q RMSE, directional swath correlations, and coverage are supplied in Online Resource 2. "
-       "All five runs are retained without performance selection; global fit and geological information content are evaluated separately."]),
+        (
+            "Online Resource 1: Supplementary Methods and Validation",
+            [
+                MME_TITLE,
+                MME_JOURNAL,
+                f"{AUTHOR_NAME}; {AUTHOR_AFFILIATION}; {AUTHOR_EMAIL}; ORCID {AUTHOR_ORCID_URL}",
+                "Contents: archive-envelope construction and balance; categorical workflow and grouped validation; "
+                "support decomposition and convergence; variogram, contact and spatial diagnostics; and matched repeated-null sensitivity.",
+                "This audit-level supplement accompanies Online Resource 2. Proprietary drillhole and categorical-domain arrays are not redistributed.",
+            ],
+        ),
+        (
+            "S1. Archive-Derived Reporting Envelope",
+            [
+                f"The archive source contains seven lode identifiers. Common-footprint and DEM-surface checks retain "
+                f"{int(envelope.get('common_support_fine_block_count', 0)):,} blocks from six identifiers. "
+                f"L01 contributes {int(envelope.get('dominant_retained_lode_block_count', 0)):,} blocks "
+                f"({float(envelope.get('dominant_retained_lode_fraction_pct', float('nan'))):.2f}%); L02 is outside the common SGS footprint.",
+                "Only x, y, z, block dimensions, lode identity and topography_z were read. Estimated TGC, kriging "
+                "variance, density, classification, tonnes and contained graphite were excluded.",
+                f"Fractional lode volume occupies "
+                f"{float((envelope.get('support_scenarios', {}).get('fractional_lode_volume', {}) or {}).get('reporting_volume_fraction_pct', float('nan'))):.3f}% "
+                "of reporting volume. Any-intersection and full-cell-core summaries provide sensitivity brackets.",
+                "The envelope is used to align reporting support and to compare model families inside the same volume.",
+            ],
+        ),
+        (
+            "S2. Categorical-Domain Workflow",
+            [
+                "Fresh graphitic, weathered graphitic and host/waste categories were sampled before grade SGS. "
+                "Local inverse-distance class scores used the 250/200/20 m anisotropic search, at most 20 neighbours, "
+                "prior weight 2.0 and seed 1337 plus realisation index.",
+                "At cell u, graphitic probability is the realisation frequency of either graphitic class. Normalised "
+                "Shannon entropy is H(u) = -sum[p_k(u) ln p_k(u)] / ln(3). These raw frequencies are secondary "
+                "within-support sensitivity fields; the archive envelope defines primary reporting support.",
+            ],
+        ),
+        (
+            "S3. Hole-Grouped Categorical Validation",
+            [
+                f"Five folds held complete drillholes together (seed {cat.get('seed', 20260707)}), with "
+                f"{cat.get('n_holes', 100)} holes, {cat.get('n_composites', 4129)} composites and zero leakage.",
+                f"Three-class macro-F1 = {float(cat.get('macro_f1', float('nan'))):.3f}; balanced accuracy = "
+                f"{float(cat.get('balanced_accuracy', float('nan'))):.3f}; graphitic-host ROC-AUC = "
+                f"{float(raw_graphitic.get('roc_auc', float('nan'))):.3f}. Weathered composites are assigned to "
+                f"fresh graphite in {100.0 * float((cat.get('confusion_matrix', {}).get('row_normalized', [[0], [0]])[1][0])):.1f}% of withheld cases.",
+                f"Raw Brier skill over all withheld composites is {float(raw_graphitic.get('brier_skill_score', float('nan'))):.3f}. "
+                f"Within anisotropic search support (n = {int(within.get('n', 0)):,}) it is "
+                f"{float(within.get('brier_skill_score', float('nan'))):.3f}; the larger full-set penalty is driven by "
+                "the deterministic host fallback outside search support.",
+                f"A leakage-free nested recalibration sensitivity gives Brier skill "
+                f"{float(recalibrated.get('brier_skill_score', float('nan'))):.3f}, but that mapping was not applied to "
+                "the archived realisations. Reliability bins and the full confusion matrix are in Online Resource 2.",
+            ],
+        ),
+        (
+            "S4. Support Decomposition and Ensemble Convergence",
+            [
+                f"Valid reporting cells = {int(support.get('valid_cell_count', 322920)):,}; whole-grid mean = "
+                f"{float(support.get('whole_grid_mean_tgc_pct', float('nan'))):.3f}% TGC; weighted reconstruction error = "
+                f"{float(support.get('reconstruction_error_tgc_pct', float('nan'))):.3g}% TGC.",
+                "Host-dominant, transitional and graphitic-dominant cell fractions are "
+                + "/".join(
+                    f"{float(row.get('cell_fraction_pct', float('nan'))):.2f}%"
+                    for row in support.get("classes", [])
+                )
+                + "; corresponding means are "
+                + "/".join(
+                    f"{float(row.get('mean_tgc_pct', float('nan'))):.3f}%"
+                    for row in support.get("classes", [])
+                )
+                + " TGC.",
+                f"At n=75, envelope probability MAE = "
+                f"{float(n75.get('map_metrics', {}).get('probability', {}).get('mae', {}).get('p50', float('nan'))):.3f}, "
+                f"probability correlation = "
+                f"{float(n75.get('map_metrics', {}).get('probability', {}).get('correlation', {}).get('p50', float('nan'))):.3f}, "
+                f"spread correlation = "
+                f"{float(n75.get('map_metrics', {}).get('spread', {}).get('correlation', {}).get('p50', float('nan'))):.3f}, "
+                f"and hotspot Jaccard = {float(n75.get('spread_hotspot_jaccard', {}).get('p50', float('nan'))):.3f}.",
+            ],
+        ),
+        (
+            "S5. Variogram, Contact and Spatial Diagnostics",
+            [
+                f"Matched-space variogram reproduction used {int(vario.get('n_real_eval', 12))} normal-score realisations "
+                f"and gives weighted RMSE {float(vario.get('weighted_rmse', float('nan'))):.3f}. Strike and down-dip "
+                "directions retain nine pair-supported lags; thickness normal retains two.",
+                f"The signed contact profile contains {int(contact.get('n_composites', 711))} composites around "
+                f"{int(contact.get('contact_count', 134))} transitions in {int(contact.get('contact_holes', 42))} holes. "
+                f"Graphitic minus host-side mean TGC = "
+                f"{float(contact.get('graphitic_minus_host_mean_tgc_pct', float('nan'))):.3f} percentage points.",
+                f"Upper-decile plan spread starts at {float(spatial.get('high_spread_threshold_tgc_pct', float('nan'))):.3f}% TGC. "
+                f"High-spread columns have median nearest-composite distance "
+                f"{float(spatial.get('high_spread_median_nearest_composite_plan_distance_m', float('nan'))):.1f} m, "
+                f"versus {float(spatial.get('persistent_median_nearest_composite_plan_distance_m', float('nan'))):.1f} m "
+                "for persistent-occupancy columns.",
+                f"The joint high-spread and persistent set contains "
+                f"{int(spatial.get('joint_high_spread_persistent_column_count', 0))} columns. Block-bootstrap "
+                f"entropy-spread correlation is {float(obs.get('spearman_entropy_spread', float('nan'))):.3f}; "
+                "these co-location statistics remain descriptive.",
+            ],
+        ),
+        (
+            "S6. Matched Repeated-Null Sensitivity",
+            [
+                "Five independent no-domain isotropic seed families and five non-overlapping conditioned subsets each "
+                "contain 20 realisations. The same fractional archive weight and graphitic-composite reference are used for every comparison.",
+                f"Conditioned/null median envelope mean TGC = "
+                f"{median(canonical_summary, 'envelope_mean_tgc_pct'):.3f}/"
+                f"{median(matched_null_summary, 'envelope_mean_tgc_pct'):.3f}%; P(TGC > 3%) = "
+                f"{median(canonical_summary, 'envelope_probability_gt_3'):.3f}/"
+                f"{median(matched_null_summary, 'envelope_probability_gt_3'):.3f}; P90-P10 spread = "
+                f"{median(canonical_summary, 'envelope_p90_minus_p10_tgc_pct'):.3f}/"
+                f"{median(matched_null_summary, 'envelope_p90_minus_p10_tgc_pct'):.3f}% TGC.",
+                f"Conditioned/null median histogram overlap = "
+                f"{median(canonical_summary, 'envelope_histogram_overlap_graphitic'):.3f}/"
+                f"{median(matched_null_summary, 'envelope_histogram_overlap_graphitic'):.3f}; Q-Q RMSE = "
+                f"{median(canonical_summary, 'envelope_qq_rmse_graphitic_tgc_pct'):.3f}/"
+                f"{median(matched_null_summary, 'envelope_qq_rmse_graphitic_tgc_pct'):.3f}% TGC.",
+                "The null retains closer marginal fit; the conditioned subsets retain higher above-threshold persistence "
+                "and narrower conditional spread. Directional results are mixed, so no overall model winner is assigned.",
+            ],
+        ),
     ]
+
     with PdfPages(dst) as pdf:
         for heading, paragraphs in sections:
-            fig=plt.figure(figsize=(8.27,11.69),facecolor="white"); ax=fig.add_axes([0.09,0.08,0.82,0.84]); ax.axis("off")
-            ax.text(0,1,heading,va="top",fontsize=15,weight="bold",color="#17324d"); y=0.91
+            fig = plt.figure(figsize=(8.27, 11.69), facecolor="white")
+            ax = fig.add_axes([0.09, 0.08, 0.82, 0.84])
+            ax.axis("off")
+            ax.text(0, 1, heading, va="top", fontsize=15, weight="bold", color="#17324d")
+            y = 0.91
             for paragraph in paragraphs:
-                lines=wrap(paragraph,100); ax.text(0,y,"\n".join(lines),va="top",fontsize=10.5,linespacing=1.5,color="#222222")
-                y-=0.04*max(2,len(lines))+0.035
-            ax.text(0,0.01,"Online Resource 1 | Supplementary Methods and Validation",fontsize=8,color="#666666")
-            pdf.savefig(fig,dpi=300); plt.close(fig)
+                lines = wrap(paragraph, 100)
+                ax.text(
+                    0, y, "\n".join(lines), va="top", fontsize=10.5,
+                    linespacing=1.5, color="#222222",
+                )
+                y -= 0.04 * max(2, len(lines)) + 0.035
+            ax.text(
+                0, 0.01, "Online Resource 1 | Supplementary Methods and Validation",
+                fontsize=8, color="#666666",
+            )
+            pdf.savefig(fig, dpi=300)
+            plt.close(fig)
 
-        if null_summary.get("status") == "complete" and len(null_rows) == 5:
-            fig=plt.figure(figsize=(11.69,8.27),facecolor="white"); ax=fig.add_axes([0.035,0.08,0.93,0.84]); ax.axis("off")
-            ax.text(0,1,"S5a. Independent no-domain seed metrics",va="top",fontsize=15,weight="bold",color="#17324d")
-            ax.text(0,0.93,"All five 20-realisation families are retained. Summary rows use the five independent seed values.",
-                    va="top",fontsize=9.5,color="#222222")
-            columns=["Seed","Mean TGC (%)","Histogram overlap","Q-Q RMSE","X swath r","Y swath r","Z swath r"]
-            keys=["mean_sim","hist_overlap","qq_rmse","swath_corr_x","swath_corr_y","swath_corr_z"]
-            body=[]
-            for row in sorted(null_rows,key=lambda item:int(float(item.get("seed",0)))):
-                body.append([str(int(float(row["seed"]))),*[f"{float(row[key]):.3f}" for key in keys]])
-            summary_metrics=null_summary.get("metrics",{}) or {}
-            for label,stat_key in (("Median","median"),("Minimum","min"),("Maximum","max"),("SD","std")):
-                body.append([label,*[f"{float((summary_metrics.get(key,{}) or {}).get(stat_key,float('nan'))):.3f}" for key in keys]])
-            table=ax.table(cellText=body,colLabels=columns,cellLoc="center",colLoc="center",
-                           colWidths=[0.09,0.14,0.15,0.12,0.12,0.12,0.12],bbox=[0,0.18,1,0.68])
-            table.auto_set_font_size(False); table.set_fontsize(8.0)
-            for (row_index,column_index),cell in table.get_celld().items():
-                cell.set_edgecolor("#8A9AA8"); cell.set_linewidth(0.55)
+        matched_rows = (
+            matched.get("null_20_realisation_seed_families", {}).get("rows", []) or []
+        )
+        if len(matched_rows) == 5:
+            fig = plt.figure(figsize=(11.69, 8.27), facecolor="white")
+            ax = fig.add_axes([0.035, 0.08, 0.93, 0.84])
+            ax.axis("off")
+            ax.text(
+                0, 1, "S6a. Independent no-domain seed metrics (matched envelope)",
+                va="top", fontsize=15, weight="bold", color="#17324d",
+            )
+            ax.text(
+                0, 0.93,
+                "All five 20-realisation families are retained; summary rows use the five independent seed values.",
+                va="top", fontsize=9.5, color="#222222",
+            )
+            columns = [
+                "Seed", "Mean TGC (%)", "P(TGC > 3%)", "Spread (%)",
+                "Hist. overlap", "Q-Q RMSE", "Strike r", "Dip r", "Normal r",
+            ]
+            keys = [
+                "envelope_mean_tgc_pct", "envelope_probability_gt_3",
+                "envelope_p90_minus_p10_tgc_pct", "envelope_histogram_overlap_graphitic",
+                "envelope_qq_rmse_graphitic_tgc_pct", "envelope_swath_corr_strike",
+                "envelope_swath_corr_down_dip", "envelope_swath_corr_thickness_normal",
+            ]
+            body = []
+            for row in sorted(matched_rows, key=lambda item: int(item.get("seed", 0))):
+                body.append([str(int(row["seed"])), *[f"{float(row[key]):.3f}" for key in keys]])
+            for label, stat_key in (
+                ("Median", "median"), ("Minimum", "min"), ("Maximum", "max"), ("SD", "std")
+            ):
+                body.append(
+                    [
+                        label,
+                        *[
+                            f"{float((matched_null_summary.get(key, {}) or {}).get(stat_key, float('nan'))):.3f}"
+                            for key in keys
+                        ],
+                    ]
+                )
+            table = ax.table(
+                cellText=body, colLabels=columns, cellLoc="center", colLoc="center",
+                colWidths=[0.08, 0.12, 0.12, 0.105, 0.11, 0.10, 0.09, 0.09, 0.09],
+                bbox=[0, 0.18, 1, 0.68],
+            )
+            table.auto_set_font_size(False)
+            table.set_fontsize(8.0)
+            for (row_index, _column_index), cell in table.get_celld().items():
+                cell.set_edgecolor("#8A9AA8")
+                cell.set_linewidth(0.55)
                 if row_index == 0:
-                    cell.set_facecolor("#17324D"); cell.get_text().set_color("white"); cell.get_text().set_weight("bold")
+                    cell.set_facecolor("#17324D")
+                    cell.get_text().set_color("white")
+                    cell.get_text().set_weight("bold")
                 elif row_index > 5:
-                    cell.set_facecolor("#EAF1F6"); cell.get_text().set_weight("bold")
+                    cell.set_facecolor("#EAF1F6")
+                    cell.get_text().set_weight("bold")
                 elif row_index % 2 == 0:
                     cell.set_facecolor("#F5F7F9")
-            ax.text(0,0.10,"Interpretation: global distribution fit and geological information content are evaluated on separate axes; all five seeds are reported without performance selection.",
-                    fontsize=9,color="#222222",va="top")
-            ax.text(0,0.01,"Online Resource 1 | Supplementary Methods and Validation",fontsize=8,color="#666666")
-            pdf.savefig(fig,dpi=300); plt.close(fig)
-
+            ax.text(
+                0, 0.10,
+                "The same fractional lode envelope is used for all seeds and conditioned subsets; no seed was selected by performance.",
+                fontsize=9, color="#222222", va="top",
+            )
+            ax.text(
+                0, 0.01, "Online Resource 1 | Supplementary Methods and Validation",
+                fontsize=8, color="#666666",
+            )
+            pdf.savefig(fig, dpi=300)
+            plt.close(fig)
 
 def _write_mme_esm_xlsx(dst: Path, staging_dir: Path, run_dir: Path, null_summary: dict, null_rows: list[dict]) -> None:
     truth=_first_json(ROOT/"build"/"source_of_truth.submission.json")
@@ -4215,6 +4370,18 @@ def _write_mme_esm_xlsx(dst: Path, staging_dir: Path, run_dir: Path, null_summar
     run_metadata = json.loads(json.dumps(_first_json(run_dir/"sgs_meta.json", staging_dir/"sgs_meta.json")))
     if isinstance(run_metadata.get("config"), dict):
         run_metadata["config"].pop("publication", None)
+    simulation = run_metadata.setdefault("config", {}).setdefault("simulation", {})
+    configured_label = simulation.get("kriging_type")
+    simulation["configured_legacy_kriging_type_label"] = configured_label
+    simulation["kriging_type"] = "SK_style_effective"
+    simulation["implemented_estimator"] = "simple_kriging_style_normal_score"
+    simulation["solver_evidence"] = "covariance system solved without an ordinary-kriging Lagrange multiplier"
+    run_metadata["estimator_implementation_audit"] = {
+        "configured_legacy_label": configured_label,
+        "reported_effective_estimator": "SK_style_effective",
+        "implementation_reference": "src/sgs.py::_krige_local",
+        "simulation_values_changed_by_metadata_correction": False,
+    }
     run_metadata["submission_profile"] = {
         "journal": MME_JOURNAL,
         "collection": MME_COLLECTION,
@@ -4226,7 +4393,11 @@ def _write_mme_esm_xlsx(dst: Path, staging_dir: Path, run_dir: Path, null_summar
       "Validation Metrics":[["Metric","Value"]]+_flatten(validation),
       "Variogram Models":[["Metric","Value"]]+_flatten(_first_json(staging_dir/"supplement"/"variogram_model.json",staging_dir/"variogram_model.json",run_dir/"figures"/"variogram_model.json",run_dir/"tables"/"variogram_model.json")),
       "Convergence":[["Metric","Value"]]+_flatten(validation.get("validation_gap_summaries",{}).get("archive_lode_envelope_convergence",{})),
-      "Reporting Envelope":[["Metric","Value"]]+_flatten(validation.get("validation_gap_summaries",{}).get("archive_lode_envelope",{})),
+      "Reporting Envelope":[["Metric","Value"]]+_flatten({
+          "geometry": validation.get("validation_gap_summaries",{}).get("archive_lode_envelope",{}),
+          "spatial_patterns": validation.get("validation_gap_summaries",{}).get("archive_lode_spatial_patterns",{}),
+      }),
+      "Matched Envelope":[["Metric","Value"]]+_flatten(validation.get("validation_gap_summaries",{}).get("archive_lode_matched_null_comparison",{})),
       "Support Decomposition":[["Metric","Value"]]+_flatten(validation.get("validation_gap_summaries",{}).get("support_aligned_mean_decomposition",{})),
       "Categorical Validation":[["Metric","Value"]]+_flatten(validation.get("validation_gap_summaries",{}).get("categorical_domain_grouped_validation",{})),
       "Contact Statistics":[["Metric","Value"]]+_flatten(validation.get("validation_gap_summaries",{}).get("signed_graphitic_host_contact",{})),

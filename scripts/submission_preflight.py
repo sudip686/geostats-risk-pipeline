@@ -1104,13 +1104,29 @@ def check_mme_package(sub_dir: Path) -> None:
     practical_markers = (
         "Implications for Graphite Exploration and Resource Evaluation",
         "Practical Decision-Use Matrix for Graphite Exploration and Resource Evaluation",
-        "Archive-derived lode envelope", "Envelope-weighted P50 TGC", "P90-P10 TGC spread",
-        "P(TGC > 3%)", "Raw categorical frequencies and entropy", "Geology-blind null sensitivity",
+        "Archive-derived lode envelope", "Persistent P(TGC > 3%)", "P90-P10 TGC spread",
+        "Joint persistence and high spread", "Raw categorical frequencies and entropy",
+        "Matched geology-blind comparison",
     )
     for marker in practical_markers:
         if marker not in text:
             issues.append(f"practical mining-value content missing: {marker}")
     if _docx_media_count(manuscript) != 7: issues.append("Manuscript.docx must embed exactly seven figures")
+    for marker in (
+        "upper-decile spread threshold",
+        "median plan distance to the nearest sampled composite",
+        "High spread and persistent occupancy coincide",
+        "Table 5 translates each output",
+        "L01: 51,809 of 55,716 blocks",
+    ):
+        if marker not in text:
+            issues.append(f"story-evidence integration missing: {marker}")
+    if "Directional swaths in Figure 7 were computed" in text:
+        issues.append("Figure 7 is cited before the Results figure sequence")
+    if "[2, 5]" in text:
+        issues.append("Figure 1 retains the incorrect Maleki-and-Emery regional-map citation")
+    if "\x08" in text or "ar{Z}" in text or "rac{" in text:
+        issues.append("malformed equation residue remains in manuscript")
 
     doc = Document(manuscript)
     limitation_indices = [
@@ -1132,10 +1148,10 @@ def check_mme_package(sub_dir: Path) -> None:
     if "principal remaining scientific test" in text.lower():
         issues.append("limitations are repeated in Conclusions instead of being consolidated in Discussion")
     null_design_markers = (
-        "Geology-Blind Composite Null Sensitivity",
+        "Geology-Blind Composite Null and Matched-Envelope Comparison",
         "composite configuration sensitivity",
-        "150 x 150 x 150 m",
-        "105/15/195 degree axis labels",
+        "isotropic 150 m covariance and search",
+        "identical support",
         "enabled vertical trend",
     )
     for marker in null_design_markers:
@@ -1224,9 +1240,24 @@ def check_mme_package(sub_dir: Path) -> None:
         if residue in esm_lower:
             issues.append(f"JAES/Elsevier residue present in Online Resources: {residue}")
     required_sheets = {"README","Run Metadata","Validation Metrics","Variogram Models","Convergence",
-                       "Reporting Envelope","Support Decomposition","Categorical Validation","Contact Statistics",
-                       "Occupancy Diagnostics","Repeated Null Summary","Repeated Null Seeds"}
-    if not required_sheets.issubset(sheets): issues.append(f"ESM_2.xlsx missing sheets: {sorted(required_sheets-sheets)}")
+                       "Reporting Envelope","Matched Envelope","Support Decomposition","Categorical Validation",
+                       "Contact Statistics","Occupancy Diagnostics","Repeated Null Summary","Repeated Null Seeds"}
+    if sheets != required_sheets:
+        issues.append(f"ESM_2.xlsx worksheet set mismatch: expected {sorted(required_sheets)}, found {sorted(sheets)}")
+    for token in (
+        "SK_style_effective",
+        "simple_kriging_style_normal_score",
+        "configured_legacy_kriging_type_label",
+        "computed_completed_outputs_only",
+        "envelope_probability_gt_3",
+        "envelope_p90_minus_p10_tgc_pct",
+        "dominant_retained_lode_fraction_pct",
+    ):
+        if token not in xlsx_text:
+            issues.append(f"ESM_2.xlsx missing matched-support or estimator metadata: {token}")
+    for token in ("S1. Archive-Derived Reporting Envelope", "S6. Matched Repeated-Null Sensitivity", "92.99%"):
+        if token not in pdf_text:
+            issues.append(f"ESM_1.pdf missing primary support evidence: {token}")
 
     summary_path = ROOT / "build" / "factorial_validation" / "five_seed_summary.json"
     metrics_path = ROOT / "build" / "factorial_validation" / "five_seed_metrics.csv"

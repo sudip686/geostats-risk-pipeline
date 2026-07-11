@@ -300,6 +300,17 @@ def _compute_archive_lode_envelope_summary(run_dir: Path) -> dict:
         graphitic_mean = float(
             population.get("declustered_graphitic_composites_mean_tgc_pct", 3.9206530875965773)
         )
+        inside_counts = envelope.get("lode_inside_counts", {}) or {}
+        outside_counts = envelope.get("lode_outside_counts", {}) or {}
+        archive_lode_ids = sorted(set(inside_counts) | set(outside_counts))
+        retained_lode_ids = sorted(key for key, value in inside_counts.items() if int(value) > 0)
+        dominant_lode_id = max(inside_counts, key=inside_counts.get) if inside_counts else None
+        dominant_lode_count = int(inside_counts.get(dominant_lode_id, 0)) if dominant_lode_id else 0
+        dominant_lode_fraction_pct = (
+            100.0 * dominant_lode_count / float(envelope["retained_block_count"])
+            if envelope.get("retained_block_count")
+            else None
+        )
         return {
             "status": "computed_from_completed_sgs_and_archive_derived_lode_mask",
             "role": "reporting-support sensitivity, not independent grade validation",
@@ -314,6 +325,12 @@ def _compute_archive_lode_envelope_summary(run_dir: Path) -> dict:
             "coverage_fraction_distribution": {
                 f"{float(value):.2f}": int(count) for value, count in zip(values, counts)
             },
+            "archive_lode_ids": archive_lode_ids,
+            "retained_lode_ids": retained_lode_ids,
+            "retained_lode_count": int(len(retained_lode_ids)),
+            "dominant_retained_lode_id": dominant_lode_id,
+            "dominant_retained_lode_block_count": dominant_lode_count,
+            "dominant_retained_lode_fraction_pct": dominant_lode_fraction_pct,
             "support_scenarios": scenarios,
             "declustered_graphitic_composite_mean_tgc_pct": graphitic_mean,
             "fractional_mean_minus_graphitic_composite_mean_tgc_pct": float(
@@ -2535,6 +2552,405 @@ def _compute_directional_swath_curves(run_dir: Path, n_bins: int = 10) -> dict:
         return {"status": "not_computed", "reason": str(exc)}
 
 
+def _archive_lode_swath_curves_for_realisations(
+    run_dir: Path,
+    realisations: np.ndarray,
+    coverage_3d: np.ndarray,
+    n_bins: int = 10,
+) -> dict:
+    """Return geological-axis swath curves for any reporting-support ensemble."""
+    from src.variography import build_orebody_axes, orebody_from_config
+
+    coverage = np.asarray(coverage_3d, dtype=float).ravel()
+    meta = load_json(run_dir / "sgs_meta.json")
+    cfg = meta.get("config", {}) or {}
+    grid = cfg.get("grid", {}) or {}
+    reporting = cfg.get("reporting_grid", {}) or {}
+    x0, y0, z0 = [float(value) for value in grid["origin_xyz"]]
+    dx, dy, dz = [
+        float(reporting.get(key, default))
+        for key, default in (("dx", 50.0), ("dy", 50.0), ("dz", 2.0))
+    ]
+    nx, ny, nz = realisations.shape[1:]
+    xyz = np.column_stack(
+        [
+            array.ravel()
+            for array in np.meshgrid(
+                x0 + np.arange(nx) * dx,
+                y0 + np.arange(ny) * dy,
+                z0 + np.arange(nz) * dz,
+                indexing="ij",
+            )
+        ]
+    )
+    observations = pd.read_csv(run_dir / "domain_data.csv").dropna(
+        subset=["x", "y", "z", "tgc_pct"]
+    ).copy()
+    if "domain_group" in observations.columns:
+        graphitic = observations["domain_group"].astype(str).str.lower().isin(
+            ["fresh_graphitic", "weathered_graphitic"]
+        )
+        observations = observations.loc[graphitic].copy()
+    if observations.empty:
+        raise ValueError("no graphitic composites are available for envelope swaths")
+    obs_xyz = observations[["x", "y", "z"]].to_numpy(dtype=float)
+    obs_tgc = observations["tgc_pct"].to_numpy(dtype=float)
+    finite = np.all(np.isfinite(realisations), axis=0).ravel() & (coverage > 0.0)
+    cell_indices = np.flatnonzero(finite)
+    cell_weights = coverage[cell_indices]
+    orebody = orebody_from_config(cfg)
+    axes = build_orebody_axes(
+        float(orebody.get("strike_deg", 0.0)),
+        float(orebody.get("dip_deg", 30.0)),
+        float(orebody.get("dip_direction_deg", 90.0)),
+        dip_positive_down=bool(orebody.get("dip_positive_down", True)),
+    )
+    specs = [
+        ("along_strike", "Strike / corridor", np.asarray(axes["strike"], dtype=float)),
+        ("down_dip", "Down dip", np.asarray(axes["dip"], dtype=float)),
+        ("normal_to_plane", "Thickness normal", np.asarray(axes["normal"], dtype=float)),
+    ]
+    curves = {}
+    for key, label, vector in specs:
+        model_pos = xyz @ vector
+        observed_pos = obs_xyz @ vector
+        low, high = float(np.min(observed_pos)), float(np.max(observed_pos))
+        edges = np.linspace(low, high, n_bins + 1)
+        centres = 0.5 * (edges[:-1] + edges[1:])
+        offset = float(np.median(centres))
+        bins = np.digitize(model_pos[cell_indices], edges) - 1
+        valid_bins = (bins >= 0) & (bins < n_bins)
+        selected = cell_indices[valid_bins]
+        weights = cell_weights[valid_bins]
+        selected_bins = bins[valid_bins]
+        weight_sum = np.bincount(selected_bins, weights=weights, minlength=n_bins)
+        cell_count = np.bincount(selected_bins, minlength=n_bins).astype(int)
+        realisation_means = np.full((realisations.shape[0], n_bins), np.nan, dtype=float)
+        flat_realisations = np.asarray(realisations, dtype=float).reshape(realisations.shape[0], -1)
+        for real_index in range(realisations.shape[0]):
+            values = flat_realisations[real_index, selected]
+            sums = np.bincount(selected_bins, weights=values * weights, minlength=n_bins)
+            np.divide(sums, weight_sum, out=realisation_means[real_index], where=weight_sum > 0.0)
+        obs_bins = np.digitize(observed_pos, edges) - 1
+        obs_count = np.zeros(n_bins, dtype=int)
+        obs_mean = np.full(n_bins, np.nan, dtype=float)
+        for bin_index in range(n_bins):
+            take = obs_bins == bin_index
+            obs_count[bin_index] = int(np.sum(take))
+            if obs_count[bin_index] >= 5:
+                obs_mean[bin_index] = float(np.mean(obs_tgc[take]))
+        p10, p50, p90 = np.nanpercentile(realisation_means, [10, 50, 90], axis=0)
+        comparable = np.isfinite(obs_mean) & np.isfinite(p50)
+        correlation = (
+            _safe_corr(obs_mean[comparable], p50[comparable])
+            if np.sum(comparable) >= 3
+            else None
+        )
+        to_json = lambda values: [
+            float(value) if np.isfinite(value) else None for value in values
+        ]
+        curves[key] = {
+            "label": label,
+            "bin_centres_m": to_json(centres - offset),
+            "bin_edges_m": to_json(edges - offset),
+            "observed_composite_mean_tgc_pct": to_json(obs_mean),
+            "observed_composite_count": [int(value) for value in obs_count],
+            "minimum_observed_count": 5,
+            "ensemble_p10_bin_mean_tgc_pct": to_json(p10),
+            "ensemble_p50_bin_mean_tgc_pct": to_json(p50),
+            "ensemble_p90_bin_mean_tgc_pct": to_json(p90),
+            "reporting_cell_count": [int(value) for value in cell_count],
+            "reporting_volume_weight": to_json(weight_sum),
+            "observed_vs_ensemble_p50_correlation": correlation,
+        }
+    return curves
+
+
+def _weighted_quantiles(values: np.ndarray, weights: np.ndarray, quantiles_pct: np.ndarray) -> np.ndarray:
+    values = np.asarray(values, dtype=float).ravel()
+    weights = np.asarray(weights, dtype=float).ravel()
+    valid = np.isfinite(values) & np.isfinite(weights) & (weights > 0.0)
+    values = values[valid]
+    weights = weights[valid]
+    if values.size == 0:
+        return np.full(np.asarray(quantiles_pct).shape, np.nan, dtype=float)
+    order = np.argsort(values, kind="mergesort")
+    values = values[order]
+    weights = weights[order]
+    cumulative = np.cumsum(weights) - 0.5 * weights
+    cumulative /= np.sum(weights)
+    return np.interp(np.asarray(quantiles_pct, dtype=float) / 100.0, cumulative, values)
+
+
+def _weighted_histogram_overlap(
+    data_values: np.ndarray,
+    data_weights: np.ndarray,
+    simulated_values: np.ndarray,
+    simulated_weights: np.ndarray,
+    bins: int = 50,
+) -> float:
+    data_values = np.asarray(data_values, dtype=float).ravel()
+    data_weights = np.asarray(data_weights, dtype=float).ravel()
+    simulated_values = np.asarray(simulated_values, dtype=float).ravel()
+    simulated_weights = np.asarray(simulated_weights, dtype=float).ravel()
+    data_ok = np.isfinite(data_values) & np.isfinite(data_weights) & (data_weights > 0.0)
+    sim_ok = np.isfinite(simulated_values) & np.isfinite(simulated_weights) & (simulated_weights > 0.0)
+    data_values, data_weights = data_values[data_ok], data_weights[data_ok]
+    simulated_values, simulated_weights = simulated_values[sim_ok], simulated_weights[sim_ok]
+    if data_values.size == 0 or simulated_values.size == 0:
+        return float("nan")
+    low = float(min(np.min(data_values), np.min(simulated_values)))
+    high = float(max(np.max(data_values), np.max(simulated_values)))
+    if high <= low:
+        return float("nan")
+    edges = np.linspace(low, high, bins + 1)
+    data_hist = np.histogram(data_values, bins=edges, weights=data_weights)[0] / np.sum(data_weights)
+    sim_hist = np.histogram(simulated_values, bins=edges, weights=simulated_weights)[0] / np.sum(simulated_weights)
+    return float(np.sum(np.minimum(data_hist, sim_hist)))
+
+
+def _archive_lode_model_metrics(
+    run_dir: Path,
+    realisations: np.ndarray,
+    coverage: np.ndarray,
+    data_values: np.ndarray,
+    data_weights: np.ndarray,
+) -> dict:
+    values = np.asarray(realisations, dtype=float)
+    if values.ndim != 4 or tuple(values.shape[1:]) != tuple(coverage.shape):
+        raise ValueError("model ensemble and archive envelope have different reporting shapes")
+    flat = values.reshape(values.shape[0], -1)
+    flat_weights = np.asarray(coverage, dtype=float).ravel()
+    selected = flat_weights > 0.0
+    envelope_values = flat[:, selected].reshape(-1)
+    envelope_weights = np.tile(flat_weights[selected], values.shape[0])
+    per_realisation_mean = np.average(flat[:, selected], axis=1, weights=flat_weights[selected])
+    cell_p10, cell_p50, cell_p90 = np.percentile(values, [10, 50, 90], axis=0)
+    quantiles = np.linspace(0.0, 100.0, 501)
+    qq_difference = _weighted_quantiles(data_values, data_weights, quantiles) - _weighted_quantiles(
+        envelope_values, envelope_weights, quantiles
+    )
+    curves = _archive_lode_swath_curves_for_realisations(
+        run_dir, values, coverage, n_bins=10
+    )
+    swath_correlations = {
+        key: curves[key].get("observed_vs_ensemble_p50_correlation")
+        for key in ("along_strike", "down_dip", "normal_to_plane")
+    }
+    return {
+        "n_real": int(values.shape[0]),
+        "full_grid_mean_tgc_pct": float(np.mean(values)),
+        "envelope_mean_tgc_pct": float(np.average(envelope_values, weights=envelope_weights)),
+        "envelope_realisation_mean_p10_tgc_pct": float(np.percentile(per_realisation_mean, 10)),
+        "envelope_realisation_mean_p50_tgc_pct": float(np.percentile(per_realisation_mean, 50)),
+        "envelope_realisation_mean_p90_tgc_pct": float(np.percentile(per_realisation_mean, 90)),
+        "envelope_weighted_cell_p50_tgc_pct": float(
+            np.average(cell_p50.ravel()[selected], weights=flat_weights[selected])
+        ),
+        "envelope_probability_gt_3": float(np.average(envelope_values > 3.0, weights=envelope_weights)),
+        "envelope_p90_minus_p10_tgc_pct": float(
+            np.average((cell_p90 - cell_p10).ravel()[selected], weights=flat_weights[selected])
+        ),
+        "envelope_histogram_overlap_graphitic": _weighted_histogram_overlap(
+            data_values, data_weights, envelope_values, envelope_weights
+        ),
+        "envelope_qq_rmse_graphitic_tgc_pct": float(np.sqrt(np.mean(qq_difference**2))),
+        "envelope_swath_corr_strike": swath_correlations["along_strike"],
+        "envelope_swath_corr_down_dip": swath_correlations["down_dip"],
+        "envelope_swath_corr_thickness_normal": swath_correlations["normal_to_plane"],
+    }
+
+
+def _summarise_rows(rows: list[dict], keys: list[str]) -> dict:
+    summaries = {}
+    for key in keys:
+        values = np.asarray(
+            [float(row[key]) for row in rows if row.get(key) is not None and np.isfinite(float(row[key]))],
+            dtype=float,
+        )
+        summaries[key] = {
+            "median": float(np.median(values)) if values.size else None,
+            "min": float(np.min(values)) if values.size else None,
+            "max": float(np.max(values)) if values.size else None,
+            "std": float(np.std(values, ddof=1)) if values.size > 1 else 0.0,
+        }
+    return summaries
+
+
+def _compute_archive_lode_matched_null_comparison(run_dir: Path) -> dict:
+    """Compare five completed null families and five canonical subsets on the same lode support."""
+    try:
+        envelope = _load_archive_lode_envelope(run_dir)
+        coverage = np.asarray(envelope["coverage"], dtype=float)
+        frames = []
+        for domain_name in ("fresh_graphitic", "weathered_graphitic"):
+            path = run_dir / "domains" / domain_name / "declustered.csv"
+            frames.append(pd.read_csv(path, usecols=["tgc_pct", "decluster_weight"]))
+        graphitic = pd.concat(frames, ignore_index=True)
+        data_values = pd.to_numeric(graphitic["tgc_pct"], errors="coerce").to_numpy(dtype=float)
+        data_weights = pd.to_numeric(graphitic["decluster_weight"], errors="coerce").to_numpy(dtype=float)
+
+        canonical = np.load(run_dir / "grids" / "sgs_reals_reporting.npy", mmap_mode="r")
+        canonical_rows = []
+        for subset_index, start in enumerate(range(0, 100, 20), start=1):
+            row = _archive_lode_model_metrics(
+                run_dir, canonical[start : start + 20], coverage, data_values, data_weights
+            )
+            row.update(
+                {
+                    "subset": int(subset_index),
+                    "realisation_start": start + 1,
+                    "realisation_end": start + 20,
+                }
+            )
+            canonical_rows.append(row)
+
+        null_rows = []
+        for seed in (9101, 9201, 9301, 9401, 9501):
+            family_dir = ROOT / "build" / "factorial_validation" / f"no_domain_isotropic_seed_{seed}"
+            array_path = family_dir / "grids" / "sgs_reals_reporting.npy"
+            if not array_path.exists():
+                raise FileNotFoundError(f"completed null reporting ensemble is missing for seed {seed}")
+            row = _archive_lode_model_metrics(
+                run_dir, np.load(array_path, mmap_mode="r"), coverage, data_values, data_weights
+            )
+            row["seed"] = int(seed)
+            null_rows.append(row)
+
+        metric_keys = [
+            "full_grid_mean_tgc_pct",
+            "envelope_mean_tgc_pct",
+            "envelope_weighted_cell_p50_tgc_pct",
+            "envelope_probability_gt_3",
+            "envelope_p90_minus_p10_tgc_pct",
+            "envelope_histogram_overlap_graphitic",
+            "envelope_qq_rmse_graphitic_tgc_pct",
+            "envelope_swath_corr_strike",
+            "envelope_swath_corr_down_dip",
+            "envelope_swath_corr_thickness_normal",
+        ]
+        canonical_summary = _summarise_rows(canonical_rows, metric_keys)
+        null_summary = _summarise_rows(null_rows, metric_keys)
+        contrasts = {
+            key: (
+                None
+                if canonical_summary[key]["median"] is None or null_summary[key]["median"] is None
+                else float(null_summary[key]["median"] - canonical_summary[key]["median"])
+            )
+            for key in metric_keys
+        }
+        return {
+            "status": "computed_completed_outputs_only",
+            "support": "identical fractional archive-lode weights on the 50 x 50 x 2 m reporting grid",
+            "reference_population": "fresh plus weathered graphitic composites with domain declustering weights",
+            "canonical_design": "five contiguous, non-overlapping 20-realisation subsets",
+            "null_design": "five independent 20-realisation no-domain isotropic seed families",
+            "canonical_20_realisation_subsets": {"rows": canonical_rows, "summary": canonical_summary},
+            "null_20_realisation_seed_families": {"rows": null_rows, "summary": null_summary},
+            "null_minus_conditioned_median": contrasts,
+            "interpretation": (
+                "The comparison removes reporting-volume and realisation-count differences. It remains a composite "
+                "configuration sensitivity because domaining, transform, simulation support, covariance/search, "
+                "neighbourhood and trend differ between model families."
+            ),
+        }
+    except Exception as exc:
+        return {"status": "not_computed", "reason": str(exc)}
+
+
+def _compute_archive_lode_spatial_patterns(run_dir: Path) -> dict:
+    """Quantify the plan-view patterns displayed in Figures 5 and 6."""
+    try:
+        from scipy.ndimage import binary_erosion
+        from scipy.spatial import cKDTree
+
+        envelope = _load_archive_lode_envelope(run_dir)
+        coverage = np.asarray(envelope["coverage"], dtype=float)
+        grids = run_dir / "grids"
+        p10 = np.asarray(np.load(grids / "p10_grid.npy"), dtype=float)
+        p90 = np.asarray(np.load(grids / "p90_grid.npy"), dtype=float)
+        probability = np.asarray(np.load(grids / "prob_gt_3.0.npy"), dtype=float)
+        denominator = np.sum(coverage, axis=2)
+
+        def plan(values: np.ndarray) -> np.ndarray:
+            return np.divide(
+                np.sum(np.asarray(values, dtype=float) * coverage, axis=2),
+                denominator,
+                out=np.full(denominator.shape, np.nan, dtype=float),
+                where=denominator > 0.0,
+            )
+
+        plan_spread = plan(np.maximum(p90 - p10, 0.0))
+        plan_probability = plan(probability)
+        vertical_occupancy = denominator * 2.0
+        valid = np.isfinite(plan_spread) & np.isfinite(plan_probability) & (vertical_occupancy > 0.0)
+        spread_threshold = float(np.percentile(plan_spread[valid], 90))
+        high_spread = valid & (plan_spread >= spread_threshold)
+        persistent = valid & (plan_probability >= 0.80)
+        joint = high_spread & persistent
+        edge = valid & ~binary_erosion(valid, structure=np.ones((3, 3), dtype=bool), border_value=0)
+
+        meta = _reporting_grid_meta(run_dir)
+        x = float(meta["x_min"]) + np.arange(int(meta["nx"])) * float(meta["dx"])
+        y = float(meta["y_min"]) + np.arange(int(meta["ny"])) * float(meta["dy"])
+        xx, yy = np.meshgrid(x, y, indexing="ij")
+        observations = _read_domain_or_composite_data(run_dir).dropna(subset=["x", "y"])
+        tree = cKDTree(observations[["x", "y"]].to_numpy(dtype=float))
+        distances = np.full(valid.shape, np.nan, dtype=float)
+        distances[valid] = tree.query(np.column_stack([xx[valid], yy[valid]]), k=1)[0]
+        third_edges = np.quantile(yy[valid], [1.0 / 3.0, 2.0 / 3.0])
+
+        def count_by_third(mask: np.ndarray) -> list[int]:
+            return [
+                int(np.sum(mask & (yy <= third_edges[0]))),
+                int(np.sum(mask & (yy > third_edges[0]) & (yy <= third_edges[1]))),
+                int(np.sum(mask & (yy > third_edges[1]))),
+            ]
+
+        valid_count = int(np.sum(valid))
+        high_count = int(np.sum(high_spread))
+        persistent_count = int(np.sum(persistent))
+        joint_count = int(np.sum(joint))
+        high_thirds = count_by_third(high_spread)
+        persistent_thirds = count_by_third(persistent)
+        joint_thirds = count_by_third(joint)
+        return {
+            "status": "computed_from_completed_envelope_maps",
+            "plan_envelope_column_count": valid_count,
+            "high_spread_definition": "upper decile of envelope-weighted plan P90-P10 TGC spread",
+            "high_spread_threshold_tgc_pct": spread_threshold,
+            "high_spread_column_count": high_count,
+            "high_spread_column_fraction_pct": float(100.0 * high_count / valid_count),
+            "persistent_probability_definition": "envelope-weighted plan P(TGC > 3%) greater than or equal to 0.80",
+            "persistent_probability_threshold": 0.80,
+            "persistent_probability_column_count": persistent_count,
+            "persistent_probability_column_fraction_pct": float(100.0 * persistent_count / valid_count),
+            "joint_high_spread_persistent_column_count": joint_count,
+            "joint_high_spread_persistent_column_fraction_pct": float(100.0 * joint_count / valid_count),
+            "all_columns_median_nearest_composite_plan_distance_m": float(np.median(distances[valid])),
+            "high_spread_median_nearest_composite_plan_distance_m": float(np.median(distances[high_spread])),
+            "persistent_median_nearest_composite_plan_distance_m": float(np.median(distances[persistent])),
+            "high_spread_columns_beyond_100m_pct": float(100.0 * np.mean(distances[high_spread] > 100.0)),
+            "other_columns_beyond_100m_pct": float(100.0 * np.mean(distances[valid & ~high_spread] > 100.0)),
+            "footprint_edge_column_fraction_pct": float(100.0 * np.sum(edge) / valid_count),
+            "high_spread_on_footprint_edge_pct": float(100.0 * np.sum(high_spread & edge) / high_count),
+            "all_columns_mean_vertical_occupancy_m": float(np.mean(vertical_occupancy[valid])),
+            "persistent_mean_vertical_occupancy_m": float(np.mean(vertical_occupancy[persistent])),
+            "high_spread_mean_probability_gt_3": float(np.mean(plan_probability[high_spread])),
+            "northing_third_boundaries_m": [float(value) for value in third_edges],
+            "high_spread_south_central_north_counts": high_thirds,
+            "persistent_south_central_north_counts": persistent_thirds,
+            "joint_south_central_north_counts": joint_thirds,
+            "joint_northern_third_fraction_pct": float(100.0 * joint_thirds[2] / joint_count) if joint_count else None,
+            "interpretation": (
+                "Distances are plan-view distances from reporting-cell centres to the nearest sampled composite. "
+                "The metrics describe relative support and map patterns; they are not predictive-error estimates."
+            ),
+        }
+    except Exception as exc:
+        return {"status": "not_computed", "reason": str(exc)}
+
+
 def _compute_validation_gap_summaries(run_dir: Path, metrics: dict) -> dict:
     return {
         "variogram_reproduction": _compute_variogram_reproduction_summary(run_dir),
@@ -4248,8 +4664,12 @@ def reframe_captions_for_mme(text: str) -> str:
     out = "\n\n".join(paragraphs).rstrip() + "\n"
     out = re.sub(
         r"Regional relationships are synthesized after .*?; no published map panel or satellite image is reproduced\.",
-        "Regional relationships are synthesized from the cited regional and local geological frameworks [2, 5]; no published map panel or satellite image is reproduced.",
+        "Regional relationships are synthesized from the cited regional and local geological frameworks [2, 7-11]; no published map panel or satellite image is reproduced.",
         out,
+    )
+    out = out.replace(
+        "Fresh, oxide and kaolinised XRF weathering data reported by Das et al. (2026).",
+        "Contextual fresh, oxide and kaolinised XRF weathering data re-plotted from the published study [2].",
     )
     out = out.replace(chr(0xC2) + chr(0xB0), " degrees").replace(chr(0xB0), " degrees")
     out = out.replace("Panels a-D", "Panels (a)-(d)").replace("D-(f)", "(d)-(f)").replace("Panels b-F", "Panels (b)-(f)")
@@ -5355,12 +5775,26 @@ def verify_generated_consistency(out_dir: Path, truth: dict) -> None:
     t3 = truth["risk_3pct"]
     metrics = truth["validation_metrics"]
 
-    required = [
-        f"{metrics['hist_overlap']:.3f}",
-        f"{metrics['qq_rmse']:.3f}",
-        "Validation and Information-Content Comparison",
-        "cutoff_occupancy_uncertainty.csv",
-    ]
+    gap = truth.get("validation_gap_summaries", {}) or {}
+    matched = gap.get("archive_lode_matched_null_comparison", {}) or {}
+    spatial = gap.get("archive_lode_spatial_patterns", {}) or {}
+    if str(matched.get("status", "")).startswith("computed"):
+        canonical = matched["canonical_20_realisation_subsets"]["summary"]
+        null = matched["null_20_realisation_seed_families"]["summary"]
+        required = [
+            f"{float(canonical['envelope_histogram_overlap_graphitic']['median']):.3f}",
+            f"{float(null['envelope_histogram_overlap_graphitic']['median']):.3f}",
+            f"{float(spatial['high_spread_threshold_tgc_pct']):.3f}",
+            "Validation and Information-Content Comparison",
+            "cutoff_occupancy_uncertainty.csv",
+        ]
+    else:
+        required = [
+            f"{metrics['hist_overlap']:.3f}",
+            f"{metrics['qq_rmse']:.3f}",
+            "Validation and Information-Content Comparison",
+            "cutoff_occupancy_uncertainty.csv",
+        ]
     for marker in required:
         if marker not in (paper + "\n" + tables):
             raise RuntimeError(f"Generated output missing required synced value: {marker}")
@@ -6057,7 +6491,7 @@ def _add_metric_map_furniture(ax, extent: list[float]) -> None:
         x_start + 0.5 * length_m,
         y_start + 2.0 * height,
         f"{length_m:.0f} m",
-        fontsize=6.8,
+        fontsize=8.0,
         ha="center",
         va="bottom",
         color="#111827",
@@ -6077,7 +6511,7 @@ def _add_metric_map_furniture(ax, extent: list[float]) -> None:
         0.93,
         "N",
         transform=ax.transAxes,
-        fontsize=7.2,
+        fontsize=8.0,
         fontweight="bold",
         ha="center",
         va="bottom",
@@ -7657,19 +8091,19 @@ def _configure_reviewer_grade_style(plt) -> None:
         {
             "font.family": "sans-serif",
             "font.sans-serif": ["Arial", "Helvetica", "DejaVu Sans"],
-            "font.size": 7.2,
+            "font.size": 8.0,
             "axes.titlesize": 8.5,
-            "axes.labelsize": 7.4,
+            "axes.labelsize": 8.0,
             "axes.linewidth": 0.65,
             "axes.spines.top": False,
             "axes.spines.right": False,
-            "xtick.labelsize": 6.8,
-            "ytick.labelsize": 6.8,
+            "xtick.labelsize": 8.0,
+            "ytick.labelsize": 8.0,
             "xtick.direction": "out",
             "ytick.direction": "out",
             "xtick.major.width": 0.6,
             "ytick.major.width": 0.6,
-            "legend.fontsize": 7.0,
+            "legend.fontsize": 8.0,
             "legend.frameon": False,
             "figure.facecolor": "white",
             "savefig.facecolor": "white",
@@ -7775,7 +8209,7 @@ def _save_reviewer_figure(fig, path: Path, *, check_spacing: bool = False) -> No
                     raise ValueError(
                         f"Reviewer figure legend touches heading in {path.name}: {heading.get_text()!r}"
                     )
-    _save_main_figure(fig, path, min_font_pt=6.5, check_bounds=True)
+    _save_main_figure(fig, path, min_font_pt=8.0, check_bounds=True)
 
 
 def _coarsen_xy(array: np.ndarray, target_shape: tuple[int, int], reducer: str = "mean") -> np.ndarray:
@@ -7894,13 +8328,13 @@ def _render_reviewer_figure_1(fig_dir: Path, run_dir: Path) -> None:
                 ix, iy = interior.xy
                 ax.fill(ix, iy, facecolor="white", edgecolor="none", zorder=kwargs.get("zorder", 1) + 0.1)
 
-    fig = plt.figure(figsize=(NATURE_DOUBLE_COLUMN_WIDTH_IN, 5.15), dpi=MAIN_FIGURE_DPI)
+    fig = plt.figure(figsize=(NATURE_DOUBLE_COLUMN_WIDTH_IN, 5.65), dpi=MAIN_FIGURE_DPI)
     gs = fig.add_gridspec(
         2,
         2,
         left=0.065,
         right=0.985,
-        bottom=0.18,
+        bottom=0.21,
         top=0.93,
         width_ratios=[0.92, 1.28],
         height_ratios=[1.0, 1.0],
@@ -7934,7 +8368,7 @@ def _render_reviewer_figure_1(fig_dir: Path, run_dir: Path) -> None:
         arrowprops={"arrowstyle": "-", "lw": 0.65, "color": "#B2182B"},
         bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.82, "pad": 0.8},
         color="#7F1D1D",
-        fontsize=6.8,
+        fontsize=8.0,
         ha="left",
     )
     for name, xy in {
@@ -7944,11 +8378,11 @@ def _render_reviewer_figure_1(fig_dir: Path, run_dir: Path) -> None:
         "Zambia": (30.4, -9.7),
         "Mozambique": (39.5, -10.7),
     }.items():
-        ax_a.text(*xy, name, ha="center", va="center", fontsize=6.5, color="#374151", zorder=4)
-    ax_a.text(41.05, -7.3, "EAO / MMB\n(generalized)", rotation=90, ha="center", va="center", fontsize=6.5, color="#005A8D")
+        ax_a.text(*xy, name, ha="center", va="center", fontsize=8.0, color="#374151", zorder=4)
+    ax_a.text(41.05, -7.3, "EAO / MMB\n(generalized)", rotation=90, ha="center", va="center", fontsize=8.0, color="#005A8D")
     ax_a.plot([28.5, 33.0], [-12.3, -12.3], color="#111827", lw=1.8, solid_capstyle="butt")
-    ax_a.text(30.75, -11.75, "~500 km", ha="center", va="bottom", fontsize=6.5)
-    ax_a.annotate("N", xy=(41.4, 2.6), xytext=(41.4, 0.8), ha="center", fontsize=6.8, arrowprops={"arrowstyle": "-|>", "lw": 0.8, "color": "#111827"})
+    ax_a.text(30.75, -11.75, "~500 km", ha="center", va="bottom", fontsize=8.0)
+    ax_a.annotate("N", xy=(41.4, 2.6), xytext=(41.4, 0.8), ha="center", fontsize=8.0, arrowprops={"arrowstyle": "-|>", "lw": 0.8, "color": "#111827"})
     ax_a.set_xlim(27.5, 42.2)
     ax_a.set_ylim(-13.2, 3.4)
     ax_a.set_xlabel("Longitude (degrees E)")
@@ -7988,15 +8422,15 @@ def _render_reviewer_figure_1(fig_dir: Path, run_dir: Path) -> None:
         if not clipped.is_empty:
             draw_geometry(ax_b, clipped, facecolor=province_colors[label], edgecolor="white", linewidth=0.45, zorder=2)
     draw_geometry(ax_b, tanzania_geom, facecolor="none", edgecolor="#374151", linewidth=0.8, zorder=4)
-    ax_b.text(33.2, -4.4, "Tanzania\nCraton", ha="center", va="center", fontsize=6.5, color="#5C4630")
-    ax_b.text(37.0, -6.4, "Mozambique Belt", rotation=74, ha="center", va="center", fontsize=6.6, color="#164E63")
+    ax_b.text(33.2, -4.4, "Tanzania\nCraton", ha="center", va="center", fontsize=8.0, color="#5C4630")
+    ax_b.text(37.0, -6.4, "Mozambique Belt", rotation=74, ha="center", va="center", fontsize=8.0, color="#164E63")
     ax_b.scatter(study_lon, study_lat, marker="*", s=55, color="#B2182B", edgecolor="white", linewidth=0.6, zorder=6)
     ax_b.annotate(
         "NE Tanzania",
         xy=(study_lon, study_lat),
         xytext=(36.2, -2.5),
         arrowprops={"arrowstyle": "-", "lw": 0.65, "color": "#B2182B"},
-        fontsize=6.8,
+        fontsize=8.0,
         color="#7F1D1D",
     )
     ax_b.set_xlim(28.7, 40.8)
@@ -8014,7 +8448,7 @@ def _render_reviewer_figure_1(fig_dir: Path, run_dir: Path) -> None:
         columnspacing=0.75,
         handletextpad=0.35,
         labelspacing=0.28,
-        fontsize=6.5,
+        fontsize=8.0,
     )
     _reviewer_panel_heading(ax_b, "B", "Tanzanian tectonic framework", inline=True, y=1.08)
 
@@ -8069,7 +8503,7 @@ def _render_reviewer_figure_1(fig_dir: Path, run_dir: Path) -> None:
         "Graphitic schist",
         "Khondalite / aluminous schist",
         "Mafic granulite",
-        "Quartzofeldspathic / quartzite / marble",
+        "Quartzofeldspathic units /\nquartzite / marble",
     ]
     geology_colors = ["#EFE3C2", "#5E3C99", "#E6AB02", "#1B9E77", "#67A9CF"]
     cmap = ListedColormap(geology_colors)
@@ -8115,15 +8549,15 @@ def _render_reviewer_figure_1(fig_dir: Path, run_dir: Path) -> None:
         xy=(plot_extent[1] - 0.22, plot_extent[3] - 0.18),
         xytext=(plot_extent[1] - 0.22, plot_extent[3] - 0.92),
         ha="center",
-        fontsize=6.8,
+        fontsize=8.0,
         arrowprops={"arrowstyle": "-|>", "lw": 0.85, "color": "#111827"},
         zorder=7,
     )
     scale_x0 = plot_extent[0] + 0.18
     scale_y = plot_extent[2] + 0.24
     ax_c.plot([scale_x0, scale_x0 + 1.0], [scale_y, scale_y], color="#111827", lw=2.2, solid_capstyle="butt", zorder=7)
-    ax_c.text(scale_x0, scale_y + 0.12, "0", ha="center", va="bottom", fontsize=6.5)
-    ax_c.text(scale_x0 + 1.0, scale_y + 0.12, "1 km", ha="center", va="bottom", fontsize=6.5)
+    ax_c.text(scale_x0, scale_y + 0.12, "0", ha="center", va="bottom", fontsize=8.0)
+    ax_c.text(scale_x0 + 1.0, scale_y + 0.12, "1 km", ha="center", va="bottom", fontsize=8.0)
     geology_handles = [Patch(facecolor=color, edgecolor="#4B5563", linewidth=0.35, label=label) for label, color in zip(geology_labels, geology_colors)]
     geology_handles.append(
         Line2D([], [], marker="o", linestyle="", markersize=4.2, markerfacecolor="white", markeredgecolor="#111827", label=f"Drill collars (n={len(collar_x)})")
@@ -8136,7 +8570,7 @@ def _render_reviewer_figure_1(fig_dir: Path, run_dir: Path) -> None:
         columnspacing=0.85,
         handletextpad=0.4,
         labelspacing=0.3,
-        fontsize=6.5,
+        fontsize=8.0,
     )
     _reviewer_panel_heading(ax_c, "C", "Mapped geology and drill corridor", inline=True, y=1.04)
 
@@ -8168,8 +8602,8 @@ def _render_reviewer_figure_2(fig_dir: Path, run_dir: Path, truth: dict) -> None
     xr = (x - x0) / 1000.0
     yr = (y - y0) / 1000.0
 
-    fig = plt.figure(figsize=(NATURE_DOUBLE_COLUMN_WIDTH_IN, 3.60), dpi=MAIN_FIGURE_DPI)
-    gs = fig.add_gridspec(1, 3, left=0.070, right=0.985, bottom=0.18, top=0.76, wspace=0.52)
+    fig = plt.figure(figsize=(NATURE_DOUBLE_COLUMN_WIDTH_IN, 4.00), dpi=MAIN_FIGURE_DPI)
+    gs = fig.add_gridspec(1, 3, left=0.070, right=0.985, bottom=0.28, top=0.76, wspace=0.52)
     axes = [fig.add_subplot(gs[0, idx]) for idx in range(3)]
 
     ax = axes[0]
@@ -8257,8 +8691,9 @@ def _render_reviewer_figure_2(fig_dir: Path, run_dir: Path, truth: dict) -> None
             Patch(facecolor="#DCEAF4", edgecolor=PUBLICATION_COLORS["blue"], label="Principal radii: 250 / 200 m"),
             Line2D([], [], color=PUBLICATION_COLORS["vermillion"], linestyle="--", lw=1.1, label="Plane-normal radius: 20 m"),
         ],
-        loc="lower left",
-        bbox_to_anchor=(0.0, 1.025),
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.24),
+        ncol=1,
         borderaxespad=0.0,
         handlelength=1.8,
         handletextpad=0.45,
@@ -8289,7 +8724,7 @@ def _render_reviewer_figure_3(fig_dir: Path, run_dir: Path) -> None:
     yr = (y - y0) / 1000.0
     vmax = max(8.0, float(np.nanpercentile(tgc, 98)))
 
-    fig = plt.figure(figsize=(NATURE_DOUBLE_COLUMN_WIDTH_IN, 5.05), dpi=MAIN_FIGURE_DPI)
+    fig = plt.figure(figsize=(NATURE_DOUBLE_COLUMN_WIDTH_IN, 5.25), dpi=MAIN_FIGURE_DPI)
     gs = fig.add_gridspec(
         2,
         2,
@@ -8319,8 +8754,8 @@ def _render_reviewer_figure_3(fig_dir: Path, run_dir: Path) -> None:
     _reviewer_panel_heading(ax_b, "B", "Down-dip projection", inline=True, y=1.14)
     cax = fig.add_axes([0.92, 0.565, 0.018, 0.245])
     cbar = fig.colorbar(sc, cax=cax)
-    cbar.set_label("TGC (%)", fontsize=7.4)
-    cbar.ax.tick_params(labelsize=6.8)
+    cbar.set_label("TGC (%)", fontsize=8.0)
+    cbar.ax.tick_params(labelsize=8.0)
 
     bins = np.linspace(float(np.nanmin(yr)), float(np.nanmax(yr)), 13)
     bin_id = np.clip(np.digitize(yr, bins) - 1, 0, len(bins) - 2)
@@ -8387,7 +8822,7 @@ def _render_reviewer_figure_4(fig_dir: Path, run_dir: Path, truth: dict) -> None
     if fresh.size == 0 or weathered.size == 0:
         raise RuntimeError("Figure 4 requires fresh and weathered graphitic composites")
 
-    fig = plt.figure(figsize=(NATURE_DOUBLE_COLUMN_WIDTH_IN, 6.35), dpi=MAIN_FIGURE_DPI)
+    fig = plt.figure(figsize=(NATURE_DOUBLE_COLUMN_WIDTH_IN, 6.60), dpi=MAIN_FIGURE_DPI)
     gs = fig.add_gridspec(
         3,
         1,
@@ -8395,7 +8830,7 @@ def _render_reviewer_figure_4(fig_dir: Path, run_dir: Path, truth: dict) -> None
         right=0.985,
         bottom=0.09,
         top=0.90,
-        hspace=0.72,
+        hspace=0.78,
         height_ratios=[1.0, 1.0, 1.05],
     )
     axes = [fig.add_subplot(gs[idx, 0]) for idx in range(3)]
@@ -8462,7 +8897,7 @@ def _render_reviewer_figure_4(fig_dir: Path, run_dir: Path, truth: dict) -> None
         f"Mean difference: {diff:.2f}% TGC\nHole-cluster 95% CI: {ci_low:.2f} to {ci_high:.2f}\nHedges g: {effect:.2f}",
         transform=ax.transAxes,
         va="top",
-        fontsize=7.0,
+        fontsize=8.0,
         color="#374151",
     )
     ax.grid(axis="y", alpha=0.18, linewidth=0.4)
@@ -10397,6 +10832,8 @@ def _compute_validation_gap_summaries(run_dir: Path, metrics: dict) -> dict:
     output["archive_lode_envelope"] = _compute_archive_lode_envelope_summary(run_dir)
     output["archive_lode_envelope_convergence"] = _compute_archive_lode_envelope_convergence(run_dir)
     output["archive_lode_envelope_swaths"] = _compute_archive_lode_envelope_swaths(run_dir)
+    output["archive_lode_matched_null_comparison"] = _compute_archive_lode_matched_null_comparison(run_dir)
+    output["archive_lode_spatial_patterns"] = _compute_archive_lode_spatial_patterns(run_dir)
     return output
 
 def _archive_lode_plan(values: np.ndarray, coverage: np.ndarray) -> np.ndarray:
@@ -10439,17 +10876,20 @@ def _render_reviewer_figure_5(fig_dir: Path, run_dir: Path) -> None:
     probability = np.asarray(np.load(grids / "prob_gt_3.0.npy"), dtype=float)
     spread = np.maximum(p90 - p10, 0.0)
     vertical_occupancy = np.sum(coverage, axis=2) * 2.0
+    plan_spread = _archive_lode_plan(spread, coverage)
+    plan_probability = _archive_lode_plan(probability, coverage)
+    spread_threshold = float(np.nanpercentile(plan_spread[np.isfinite(plan_spread)], 90))
     values = [
         vertical_occupancy,
         _archive_lode_plan(p50, coverage),
-        _archive_lode_plan(spread, coverage),
-        _archive_lode_plan(probability, coverage),
+        plan_spread,
+        plan_probability,
     ]
     titles = [
         "Archive-derived lode support",
         "Envelope-weighted P50 TGC",
-        "Conditional TGC spread",
-        "Above-threshold occupancy",
+        "TGC spread (top-decile outline)",
+        "Above-threshold occupancy (P=0.80)",
     ]
     labels = [
         "Vertical envelope occupancy (m)",
@@ -10466,13 +10906,20 @@ def _render_reviewer_figure_5(fig_dir: Path, run_dir: Path) -> None:
     ]
     target = coverage.shape[:2]
     extent, _x0, _y0 = _grid_extent_for_array(run_dir, target)
-    fig = plt.figure(figsize=(NATURE_DOUBLE_COLUMN_WIDTH_IN, 6.55), dpi=MAIN_FIGURE_DPI)
-    gs = fig.add_gridspec(
-        4, 2, left=0.075, right=0.935, bottom=0.105, top=0.905,
-        hspace=0.34, wspace=0.20, height_ratios=[1.0, 0.065, 1.0, 0.065],
+    fig = plt.figure(figsize=(NATURE_DOUBLE_COLUMN_WIDTH_IN, 6.90), dpi=MAIN_FIGURE_DPI)
+    outer = fig.add_gridspec(
+        2, 2, left=0.075, right=0.94, bottom=0.075, top=0.94,
+        hspace=0.34, wspace=0.22,
     )
-    axes = [fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1]), fig.add_subplot(gs[2, 0]), fig.add_subplot(gs[2, 1])]
-    caxes = [fig.add_subplot(gs[1, 0]), fig.add_subplot(gs[1, 1]), fig.add_subplot(gs[3, 0]), fig.add_subplot(gs[3, 1])]
+    axes = []
+    caxes = []
+    for index in range(4):
+        nested = outer[index // 2, index % 2].subgridspec(
+            2, 1, height_ratios=[1.0, 0.055], hspace=0.52
+        )
+        axes.append(fig.add_subplot(nested[0, 0]))
+        caxes.append(fig.add_subplot(nested[1, 0]))
+
     for index, (ax, cax, array, title, label, cmap_name, limits_pair) in enumerate(
         zip(axes, caxes, values, titles, labels, cmaps, limits)
     ):
@@ -10483,22 +10930,29 @@ def _render_reviewer_figure_5(fig_dir: Path, run_dir: Path) -> None:
             masked.T, origin="lower", extent=extent, aspect="equal", interpolation="nearest",
             cmap=cmap, vmin=limits_pair[0], vmax=limits_pair[1],
         )
-        _overlay_collars(ax, extent, size=6.0, label=False)
+        if index == 2:
+            ax.contour(
+                plan_spread.T, levels=[spread_threshold], colors="#111827",
+                linewidths=0.9, origin="lower", extent=extent,
+            )
+        elif index == 3:
+            ax.contour(
+                plan_probability.T, levels=[0.80], colors="#111827",
+                linewidths=0.9, origin="lower", extent=extent,
+            )
+        _overlay_collars(ax, extent, size=7.0, label=False)
         _add_metric_map_furniture(ax, extent)
         _format_relative_map_axes(ax, extent)
-        ax.set_xlabel("Easting from grid origin (km)")
         if index % 2:
             ax.tick_params(axis="y", labelleft=False)
             ax.set_ylabel("")
-        else:
-            ax.set_ylabel("Northing from grid origin (km)")
-        _reviewer_panel_heading(ax, "abcd"[index], title, inline=True, y=1.07)
+        _reviewer_panel_heading(ax, "abcd"[index], title, inline=True, y=1.05)
         cbar = fig.colorbar(image, cax=cax, orientation="horizontal")
-        cbar.set_label(label, fontsize=7.0, labelpad=2)
-        cbar.ax.tick_params(labelsize=6.5, length=2)
+        cbar.set_label(label, fontsize=8.0, labelpad=3)
+        cbar.ax.tick_params(labelsize=8.0, length=2)
+
     _save_reviewer_figure(fig, fig_dir / "spatial_uncertainty_products.png", check_spacing=True)
     plt.close(fig)
-
 
 def _render_reviewer_figure_6(fig_dir: Path, run_dir: Path) -> None:
     import matplotlib.pyplot as plt
@@ -10525,84 +10979,152 @@ def _render_reviewer_figure_6(fig_dir: Path, run_dir: Path) -> None:
     section_extent = [float(x_edges[0]), float(x_edges[-1]), float(z_edges[0]), float(z_edges[-1])]
     footprint = np.sum(coverage, axis=2)
     plan_spread = _archive_lode_plan(spread, coverage)
+    spread_threshold = float(np.nanpercentile(plan_spread[np.isfinite(plan_spread)], 90))
     probability_section = np.ma.masked_where(coverage[:, section_idx, :] <= 0.0, probability[:, section_idx, :])
     spread_section = np.ma.masked_where(coverage[:, section_idx, :] <= 0.0, spread[:, section_idx, :])
     section_coverage = coverage[:, section_idx, :]
     indices = (0, 49, 99)
     sections = [
-        np.ma.masked_where(section_coverage <= 0.0, np.asarray(realisations[index, :, section_idx, :], dtype=float))
+        np.ma.masked_where(
+            section_coverage <= 0.0,
+            np.asarray(realisations[index, :, section_idx, :], dtype=float),
+        )
         for index in indices
     ]
-    common_tgc_vmax = max(4.0, float(np.nanpercentile(np.concatenate([item.compressed() for item in sections]), 98)))
+    common_tgc_vmax = max(
+        4.0, float(np.nanpercentile(np.concatenate([item.compressed() for item in sections]), 98))
+    )
     spread_vmax = max(1.0, float(np.nanpercentile(plan_spread[np.isfinite(plan_spread)], 98)))
     section_spread_vmax = max(1.0, float(np.nanpercentile(spread_section.compressed(), 98)))
-    fig = plt.figure(figsize=(NATURE_DOUBLE_COLUMN_WIDTH_IN, 6.80), dpi=MAIN_FIGURE_DPI)
-    outer = fig.add_gridspec(2, 1, left=0.075, right=0.925, bottom=0.08, top=0.93, hspace=0.38)
-    top = outer[0].subgridspec(2, 3, height_ratios=[1.0, 0.07], hspace=0.28, wspace=0.30)
-    bottom = outer[1].subgridspec(2, 3, height_ratios=[1.0, 0.07], hspace=0.28, wspace=0.30)
-    axes = [fig.add_subplot(top[0, i]) for i in range(3)] + [fig.add_subplot(bottom[0, i]) for i in range(3)]
-    caxes = [fig.add_subplot(top[1, i]) for i in range(3)]
+
+    fig = plt.figure(figsize=(NATURE_DOUBLE_COLUMN_WIDTH_IN, 7.60), dpi=MAIN_FIGURE_DPI)
+    outer = fig.add_gridspec(
+        2, 1, left=0.075, right=0.925, bottom=0.075, top=0.94,
+        hspace=0.44, height_ratios=[1.0, 1.0],
+    )
+    top_row = outer[0].subgridspec(1, 3, width_ratios=[1.08, 1.0, 1.0], wspace=0.34)
+    axes = []
+    caxes = []
+    for index in range(3):
+        nested = top_row[0, index].subgridspec(
+            2, 1, height_ratios=[1.0, 0.06], hspace=0.64
+        )
+        axes.append(fig.add_subplot(nested[0, 0]))
+        caxes.append(fig.add_subplot(nested[1, 0]))
+    bottom = outer[1].subgridspec(
+        2, 3, height_ratios=[1.0, 0.06], hspace=0.60, wspace=0.34
+    )
+    axes.extend(fig.add_subplot(bottom[0, index]) for index in range(3))
     real_cax = fig.add_subplot(bottom[1, :])
-    cmap_spread = plt.get_cmap("cividis").copy(); cmap_spread.set_bad("white")
-    cmap_probability = plt.get_cmap("viridis").copy(); cmap_probability.set_bad("white")
-    cmap_grade = plt.get_cmap("magma").copy(); cmap_grade.set_bad("white")
+
+    cmap_spread = plt.get_cmap("cividis").copy()
+    cmap_probability = plt.get_cmap("viridis").copy()
+    cmap_grade = plt.get_cmap("magma").copy()
+    for cmap in (cmap_spread, cmap_probability, cmap_grade):
+        cmap.set_bad("white")
 
     image = axes[0].imshow(
-        np.ma.masked_where(~np.isfinite(plan_spread), plan_spread).T, origin="lower", extent=extent,
-        aspect="equal", interpolation="nearest", cmap=cmap_spread, vmin=0.0, vmax=spread_vmax,
+        np.ma.masked_where(~np.isfinite(plan_spread), plan_spread).T,
+        origin="lower", extent=extent, aspect="equal", interpolation="nearest",
+        cmap=cmap_spread, vmin=0.0, vmax=spread_vmax,
     )
     axes[0].contour(
         footprint.T, levels=[0.01], colors="#111827", linewidths=0.75,
         origin="lower", extent=extent,
     )
-    axes[0].axhline(section_y, color=PUBLICATION_COLORS["vermillion"], lw=1.0)
-    _overlay_plan_drill_traces(axes[0], data, extent); _overlay_collars(axes[0], extent, size=5.8, label=False)
+    axes[0].contour(
+        plan_spread.T, levels=[spread_threshold], colors="#111827", linewidths=1.0,
+        origin="lower", extent=extent,
+    )
+    axes[0].axhline(section_y, color=PUBLICATION_COLORS["vermillion"], lw=1.1)
+    _overlay_plan_drill_traces(axes[0], data, extent)
+    _overlay_collars(axes[0], extent, size=6.5, label=False)
     _format_relative_map_axes(axes[0], extent)
-    axes[0].set_xlabel("Easting from grid origin (km)"); axes[0].set_ylabel("Northing from grid origin (km)")
-    _reviewer_panel_heading(axes[0], "a", "Envelope-constrained plan spread", inline=True, y=1.04)
+    _reviewer_panel_heading(axes[0], "a", "Plan spread (top-decile outline)", inline=True, y=1.06)
     cbar = fig.colorbar(image, cax=caxes[0], orientation="horizontal")
-    cbar.set_label("P90-P10 TGC spread (%)", fontsize=7.0, labelpad=2); cbar.ax.tick_params(labelsize=6.5, length=2)
+    cbar.set_label("P90-P10 TGC spread (%)", fontsize=8.0, labelpad=3)
+    cbar.ax.tick_params(labelsize=8.0, length=2)
 
     top_items = [
-        (axes[1], probability_section, cmap_probability, 0.0, 1.0, "b", "Above-threshold occupancy", "P(TGC > 3%)"),
-        (axes[2], spread_section, cmap_spread, 0.0, section_spread_vmax, "c", "TGC spread within envelope", "P90-P10 TGC spread (%)"),
+        (
+            axes[1], probability_section, cmap_probability, 0.0, 1.0,
+            "b", "Occupancy section", "P(TGC > 3%)",
+        ),
+        (
+            axes[2], spread_section, cmap_spread, 0.0, section_spread_vmax,
+            "c", "TGC spread section", "P90-P10 TGC spread (%)",
+        ),
     ]
     for ax, array, cmap, vmin, vmax, letter, title, label in top_items:
-        image = ax.imshow(array.T, origin="lower", extent=section_extent, aspect=4.0,
-                          interpolation="nearest", cmap=cmap, vmin=vmin, vmax=vmax)
-        ax.contour(x_centres, z_centres, section_coverage.T, levels=[0.01], colors="#111827", linewidths=0.65)
+        image = ax.imshow(
+            array.T, origin="lower", extent=section_extent, aspect=4.0,
+            interpolation="nearest", cmap=cmap, vmin=vmin, vmax=vmax,
+        )
+        ax.contour(
+            x_centres, z_centres, section_coverage.T, levels=[0.01],
+            colors="#111827", linewidths=0.65,
+        )
+        if letter == "b":
+            probability_values = np.asarray(probability_section.filled(np.nan), dtype=float)
+            if np.nanmin(probability_values) <= 0.80 <= np.nanmax(probability_values):
+                ax.contour(
+                    x_centres, z_centres, probability_values.T, levels=[0.80],
+                    colors="#111827", linewidths=0.9,
+                )
         topo_line = topography[:, section_idx]
-        ax.plot(x_centres[np.isfinite(topo_line)], topo_line[np.isfinite(topo_line)], color="#111827", lw=0.8)
-        ax.set_xlabel("Easting from grid origin (m)"); ax.set_ylabel("Elevation (m)")
-        _reviewer_panel_heading(ax, letter, title, inline=True, y=1.04)
-        cbar = fig.colorbar(image, cax=caxes[1 if letter == "b" else 2], orientation="horizontal")
-        cbar.set_label(label, fontsize=7.0, labelpad=2); cbar.ax.tick_params(labelsize=6.5, length=2)
+        ax.plot(
+            x_centres[np.isfinite(topo_line)], topo_line[np.isfinite(topo_line)],
+            color="#111827", lw=0.9,
+        )
+        ax.set_xlabel("Easting from grid origin (m)")
+        ax.set_ylabel("Elevation (m)")
+        _reviewer_panel_heading(ax, letter, title, inline=True, y=1.06)
+        cbar_index = 1 if letter == "b" else 2
+        cbar = fig.colorbar(image, cax=caxes[cbar_index], orientation="horizontal")
+        cbar.set_label(label, fontsize=8.0, labelpad=3)
+        cbar.ax.tick_params(labelsize=8.0, length=2)
 
-    section_data = data.loc[np.abs(pd.to_numeric(data["y"], errors="coerce") - section_y) <= 75.0].copy()
+    section_data = data.loc[
+        np.abs(pd.to_numeric(data["y"], errors="coerce") - section_y) <= 75.0
+    ].copy()
     last_image = None
     for ax, section, number, letter in zip(axes[3:], sections, (1, 50, 100), "def"):
-        last_image = ax.imshow(section.T, origin="lower", extent=section_extent, aspect=4.0,
-                               interpolation="nearest", cmap=cmap_grade, vmin=0.0, vmax=common_tgc_vmax)
-        ax.contour(x_centres, z_centres, section_coverage.T, levels=[0.01], colors="#F9FAFB", linewidths=0.65)
+        last_image = ax.imshow(
+            section.T, origin="lower", extent=section_extent, aspect=4.0,
+            interpolation="nearest", cmap=cmap_grade, vmin=0.0, vmax=common_tgc_vmax,
+        )
+        ax.contour(
+            x_centres, z_centres, section_coverage.T, levels=[0.01],
+            colors="#F9FAFB", linewidths=0.7,
+        )
         topo_line = topography[:, section_idx]
-        ax.plot(x_centres[np.isfinite(topo_line)], topo_line[np.isfinite(topo_line)], color="#111827", lw=0.8)
+        ax.plot(
+            x_centres[np.isfinite(topo_line)], topo_line[np.isfinite(topo_line)],
+            color="#111827", lw=0.9,
+        )
         if not section_data.empty:
             ax.scatter(
                 pd.to_numeric(section_data["x"], errors="coerce") - x0,
                 pd.to_numeric(section_data["z"], errors="coerce"),
-                s=4.0, c="#111827", edgecolors="white", linewidths=0.15, alpha=0.75, rasterized=True,
+                s=5.0, c="#111827", edgecolors="white", linewidths=0.18,
+                alpha=0.78, rasterized=True,
             )
-        ax.set_xlabel("Easting from grid origin (m)"); ax.set_ylabel("Elevation (m)")
-        _reviewer_panel_heading(ax, letter, f"Fixed realisation {number}", inline=True, y=1.04)
+        ax.set_xlabel("Easting from grid origin (m)")
+        ax.set_ylabel("Elevation (m)")
+        _reviewer_panel_heading(ax, letter, f"Fixed realisation {number}", inline=True, y=1.06)
+
     cbar = fig.colorbar(last_image, cax=real_cax, orientation="horizontal")
-    cbar.set_label("TGC (%) - common scale for fixed realisations 1, 50 and 100", fontsize=7.0, labelpad=2)
-    cbar.ax.tick_params(labelsize=6.5, length=2)
+    cbar.set_label(
+        "TGC (%) - common scale for fixed realisations 1, 50 and 100",
+        fontsize=8.0, labelpad=3,
+    )
+    cbar.ax.tick_params(labelsize=8.0, length=2)
     _save_reviewer_figure(fig, fig_dir / "tgc_uncertainty_spread_map.png", check_spacing=True)
     plt.close(fig)
 
-
 def _render_reviewer_figure_7(fig_dir: Path, run_dir: Path, truth: dict) -> None:
     import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
 
     _configure_reviewer_grade_style(plt)
     gap = truth.get("validation_gap_summaries", {}) or {}
@@ -10610,75 +11132,202 @@ def _render_reviewer_figure_7(fig_dir: Path, run_dir: Path, truth: dict) -> None
     convergence = gap.get("archive_lode_envelope_convergence", {}) or {}
     variogram = gap.get("variogram_reproduction", {}) or {}
     swaths = gap.get("archive_lode_envelope_swaths", {}) or {}
+    matched = gap.get("archive_lode_matched_null_comparison", {}) or {}
     if not str(summary.get("status", "")).startswith("computed"):
         raise RuntimeError("Figure 7 requires archive lode-envelope support summary")
-    scenarios = summary["support_scenarios"]
+    if not str(matched.get("status", "")).startswith("computed"):
+        raise RuntimeError("Figure 7 requires the matched-envelope null comparison")
+
     checkpoints = [int(value) for value in convergence.get("checkpoints", [])]
     rows = convergence.get("checkpoint_summaries", {}) or {}
-    if not checkpoints or not rows:
-        raise RuntimeError("Figure 7 requires archive lode-envelope convergence")
     curves = swaths.get("curves", {}) or {}
-    fig = plt.figure(figsize=(NATURE_DOUBLE_COLUMN_WIDTH_IN, 7.15), dpi=MAIN_FIGURE_DPI)
-    outer = fig.add_gridspec(2, 3, left=0.085, right=0.925, bottom=0.10, top=0.885, height_ratios=[0.88, 1.12], wspace=0.54, hspace=0.56)
+    if not checkpoints or not rows or not curves:
+        raise RuntimeError("Figure 7 requires convergence and directional swath summaries")
+
+    conditioned = matched["canonical_20_realisation_subsets"]["summary"]
+    null = matched["null_20_realisation_seed_families"]["summary"]
+    fig = plt.figure(figsize=(NATURE_DOUBLE_COLUMN_WIDTH_IN, 7.55), dpi=MAIN_FIGURE_DPI)
+    outer = fig.add_gridspec(
+        2, 3, left=0.085, right=0.925, bottom=0.12, top=0.89,
+        height_ratios=[0.88, 1.12], width_ratios=[1.12, 1.06, 1.12],
+        wspace=0.68, hspace=0.62,
+    )
     top_axes = [fig.add_subplot(outer[0, index]) for index in range(3)]
-    bottom = outer[1, :].subgridspec(2, 3, height_ratios=[1.0, 0.22], hspace=0.10, wspace=0.32)
+    bottom = outer[1, :].subgridspec(
+        2, 3, height_ratios=[1.0, 0.23], hspace=0.12, wspace=0.34
+    )
     swath_axes = [fig.add_subplot(bottom[0, index]) for index in range(3)]
     count_axes = [fig.add_subplot(bottom[1, index], sharex=swath_axes[index]) for index in range(3)]
 
-    order = ["full_rectangular_grid", "any_lode_intersection", "fractional_lode_volume", "full_cell_lode_core"]
-    labels = ["Full\nbox", "Any lode\ncell", "Fractional\nlode volume", "Full-cell\ncore"]
-    means = [float(scenarios[key]["ensemble_mean_tgc_pct"]) for key in order]
-    fractions = [
-        float(scenarios[key]["reporting_volume_fraction_pct"]) for key in order
+    # A: same realisation count, with and without the identical lode-envelope support.
+    supports = [
+        ("Full grid", "full_grid_mean_tgc_pct"),
+        ("Lode envelope", "envelope_mean_tgc_pct"),
     ]
-    colors = [PUBLICATION_COLORS["grey"], PUBLICATION_COLORS["orange"], PUBLICATION_COLORS["blue"], PUBLICATION_COLORS["green"]]
-    bars = top_axes[0].bar(np.arange(4), means, color=colors, width=0.68)
-    top_axes[0].set_xticks(np.arange(4), labels=labels)
-    top_axes[0].set_ylabel("Ensemble mean TGC (%)")
-    top_axes[0].set_ylim(0.0, max(4.4, 1.15 * max(means)))
-    for bar, fraction in zip(bars, fractions):
-        top_axes[0].text(bar.get_x() + 0.5 * bar.get_width(), bar.get_height() + 0.08,
-                          f"{fraction:.1f}%", ha="center", va="bottom", fontsize=6.6)
+    y_positions = np.array([1.0, 0.0])
+    model_specs = [
+        ("Conditioned", conditioned, PUBLICATION_COLORS["blue"], "o", 0.11),
+        ("Geology-blind null", null, PUBLICATION_COLORS["vermillion"], "D", -0.11),
+    ]
+    model_handles = []
+    for label, model_summary, color, marker, offset in model_specs:
+        medians = np.array([float(model_summary[key]["median"]) for _support, key in supports])
+        lower = medians - np.array([float(model_summary[key]["min"]) for _support, key in supports])
+        upper = np.array([float(model_summary[key]["max"]) for _support, key in supports]) - medians
+        top_axes[0].errorbar(
+            medians, y_positions + offset, xerr=np.vstack([lower, upper]),
+            fmt=marker, ms=5.0, color=color, ecolor=color, elinewidth=1.0,
+            capsize=2.4, markeredgecolor="white", markeredgewidth=0.5,
+        )
+        model_handles.append(
+            Line2D([], [], marker=marker, linestyle="", markersize=5.5, color=color, label=label)
+        )
     graphitic_mean = float(summary["declustered_graphitic_composite_mean_tgc_pct"])
-    reference = top_axes[0].axhline(graphitic_mean, color=PUBLICATION_COLORS["vermillion"], lw=1.0, ls="--")
-    top_axes[0].legend([reference], ["Declustered graphitic composites"], loc="lower center",
-                       bbox_to_anchor=(0.5, 1.04), frameon=False, fontsize=6.5)
-    top_axes[0].grid(axis="y", alpha=0.18, linewidth=0.4)
-    _reviewer_panel_heading(top_axes[0], "a", "Reporting-envelope sensitivity", inline=True, y=1.18)
+    reference = top_axes[0].axvline(
+        graphitic_mean, color=PUBLICATION_COLORS["green"], lw=1.0, ls="--"
+    )
+    top_axes[0].set_yticks(y_positions, labels=["Full grid", "Lode\nenvelope"])
+    top_axes[0].set_xlabel("Mean TGC (%)")
+    top_axes[0].set_xlim(1.8, 4.15)
+    top_axes[0].set_ylim(-0.45, 1.45)
+    top_axes[0].grid(axis="x", alpha=0.18, linewidth=0.4)
+    _reviewer_panel_heading(top_axes[0], "a", "Support-aligned mean comparison", inline=True, y=1.17)
+    top_axes[0].annotate(
+        "Conditioned",
+        xy=(float(conditioned["full_grid_mean_tgc_pct"]["median"]), 1.11),
+        xytext=(3, 8), textcoords="offset points",
+        color=PUBLICATION_COLORS["blue"], fontsize=8.0, ha="left", va="bottom",
+    )
+    top_axes[0].annotate(
+        "Geology-blind null",
+        xy=(float(null["full_grid_mean_tgc_pct"]["median"]), 0.89),
+        xytext=(-2, -11), textcoords="offset points",
+        color=PUBLICATION_COLORS["vermillion"], fontsize=8.0, ha="right", va="top",
+    )
+    top_axes[0].text(
+        graphitic_mean - 0.03, 1.39, "Composite mean",
+        color=PUBLICATION_COLORS["green"], fontsize=8.0, ha="right", va="top",
+    )
 
-    probability_mae = [100.0 * float(rows[str(n)]["map_metrics"]["probability"]["mae"]["p50"]) for n in checkpoints]
-    spread_corr = [float(rows[str(n)]["map_metrics"]["spread"]["correlation"]["p50"]) for n in checkpoints]
-    hotspot = [float(rows[str(n)]["spread_hotspot_jaccard"]["p50"]) for n in checkpoints]
-    line_a, = top_axes[1].plot(checkpoints, probability_mae, marker="o", ms=3.0, color=PUBLICATION_COLORS["blue"], lw=1.15)
-    top_axes[1].set_xlabel("Number of realisations"); top_axes[1].set_ylabel("Probability MAE (pp)", color=PUBLICATION_COLORS["blue"])
-    top_axes[1].tick_params(axis="y", colors=PUBLICATION_COLORS["blue"]); top_axes[1].axhline(3.0, color=PUBLICATION_COLORS["blue"], ls="--", lw=0.6)
+    # B: convergence with direct endpoint labels outside the data paths.
+    probability_mae = [
+        100.0 * float(rows[str(n)]["map_metrics"]["probability"]["mae"]["p50"])
+        for n in checkpoints
+    ]
+    spread_corr = [
+        float(rows[str(n)]["map_metrics"]["spread"]["correlation"]["p50"])
+        for n in checkpoints
+    ]
+    hotspot = [
+        float(rows[str(n)]["spread_hotspot_jaccard"]["p50"])
+        for n in checkpoints
+    ]
+    top_axes[1].plot(
+        checkpoints, probability_mae, marker="o", ms=3.2,
+        color=PUBLICATION_COLORS["blue"], lw=1.2,
+    )
+    top_axes[1].set_xlabel("Number of realisations")
+    top_axes[1].set_ylabel("Prob. MAE (pp)", color=PUBLICATION_COLORS["blue"])
+    top_axes[1].tick_params(axis="y", colors=PUBLICATION_COLORS["blue"])
+    top_axes[1].axhline(3.0, color=PUBLICATION_COLORS["blue"], ls="--", lw=0.7)
+    top_axes[1].set_xlim(min(checkpoints), 105)
     axr = top_axes[1].twinx()
-    line_b, = axr.plot(checkpoints, spread_corr, marker="s", ms=2.8, color=PUBLICATION_COLORS["vermillion"], lw=1.1)
-    line_c, = axr.plot(checkpoints, hotspot, marker="^", ms=2.8, color=PUBLICATION_COLORS["green"], lw=1.0)
-    axr.set_ylim(0.0, 1.04); axr.set_ylabel("Correlation / Jaccard")
-    _reviewer_panel_heading(top_axes[1], "b", "Envelope ensemble stability", inline=True, y=1.18)
+    axr.plot(
+        checkpoints, spread_corr, marker="s", ms=3.0,
+        color=PUBLICATION_COLORS["vermillion"], lw=1.15,
+    )
+    axr.plot(
+        checkpoints, hotspot, marker="^", ms=3.0,
+        color=PUBLICATION_COLORS["green"], lw=1.1,
+    )
+    axr.set_ylim(0.0, 1.04)
+    axr.set_ylabel("r / Jaccard")
+    top_axes[1].text(
+        99, 0.9, "Prob. MAE", color=PUBLICATION_COLORS["blue"],
+        fontsize=8.0, va="bottom", ha="right",
+        bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.75, "pad": 0.4},
+    )
+    axr.text(
+        99, 0.93, "Spread r", color=PUBLICATION_COLORS["vermillion"],
+        fontsize=8.0, va="center", ha="right",
+        bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.75, "pad": 0.4},
+    )
+    axr.text(
+        99, 0.59, "Hotspot J", color=PUBLICATION_COLORS["green"],
+        fontsize=8.0, va="center", ha="right",
+        bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.75, "pad": 0.4},
+    )
+    _reviewer_panel_heading(top_axes[1], "b", "Envelope ensemble stability", inline=True, y=1.17)
 
-    handles = []
+    # C: only lags satisfying the predeclared pair-count gate are displayed.
+    variogram_handles = []
+    displayed_values = []
+    min_pairs = int(variogram.get("min_pairs_for_lag", 100))
     for key, label, color in [
-        ("along_strike", "Strike/corridor", PUBLICATION_COLORS["blue"]),
+        ("along_strike", "Strike", PUBLICATION_COLORS["blue"]),
         ("down_dip", "Down dip", PUBLICATION_COLORS["vermillion"]),
         ("normal_to_plane", "Thickness normal", PUBLICATION_COLORS["green"]),
     ]:
-        curve = ((variogram.get("direction_metrics", {}) or {}).get(key, {}) or {}).get("direction_curve", {}) or {}
+        curve = (
+            ((variogram.get("direction_metrics", {}) or {}).get(key, {}) or {})
+            .get("direction_curve", {}) or {}
+        )
         lag = np.asarray(curve.get("lag_m", []), dtype=float)
-        observed = np.asarray([np.nan if value is None else value for value in curve.get("input_experimental_gamma", [])], dtype=float)
-        p05 = np.asarray([np.nan if value is None else value for value in curve.get("simulation_p05_gamma", [])], dtype=float)
-        p50 = np.asarray([np.nan if value is None else value for value in curve.get("simulation_p50_gamma", [])], dtype=float)
-        p95 = np.asarray([np.nan if value is None else value for value in curve.get("simulation_p95_gamma", [])], dtype=float)
-        if np.any(np.isfinite(p50)):
-            top_axes[2].fill_between(lag, p05, p95, color=color, alpha=0.13, linewidth=0)
-            line, = top_axes[2].plot(lag, p50, color=color, lw=1.1)
-            top_axes[2].scatter(lag, observed, s=10, facecolor="white", edgecolor=color, linewidth=0.7)
-            handles.append((line, label))
-    top_axes[2].set_xlim(0.0, 500.0); top_axes[2].set_xlabel("Lag distance (m)"); top_axes[2].set_ylabel("Semivariance (NST units)")
+        observed = np.asarray(
+            [np.nan if value is None else value for value in curve.get("input_experimental_gamma", [])],
+            dtype=float,
+        )
+        p05 = np.asarray(
+            [np.nan if value is None else value for value in curve.get("simulation_p05_gamma", [])],
+            dtype=float,
+        )
+        p50 = np.asarray(
+            [np.nan if value is None else value for value in curve.get("simulation_p50_gamma", [])],
+            dtype=float,
+        )
+        p95 = np.asarray(
+            [np.nan if value is None else value for value in curve.get("simulation_p95_gamma", [])],
+            dtype=float,
+        )
+        input_counts = np.asarray(curve.get("input_pair_count", []), dtype=float)
+        sim_counts = np.asarray(curve.get("simulation_mean_pair_count", []), dtype=float)
+        usable = (
+            np.isfinite(lag) & np.isfinite(observed) & np.isfinite(p05)
+            & np.isfinite(p50) & np.isfinite(p95)
+            & (input_counts >= min_pairs) & (sim_counts >= min_pairs)
+        )
+        if not np.any(usable):
+            continue
+        top_axes[2].fill_between(
+            lag[usable], p05[usable], p95[usable],
+            color=color, alpha=0.14, linewidth=0,
+        )
+        top_axes[2].plot(lag[usable], p50[usable], color=color, lw=1.15)
+        top_axes[2].scatter(
+            lag[usable], observed[usable], s=14, facecolor="white",
+            edgecolor=color, linewidth=0.8, zorder=3,
+        )
+        variogram_handles.append(Line2D([], [], color=color, lw=1.4, label=label))
+        displayed_values.extend(observed[usable].tolist())
+        displayed_values.extend(p95[usable].tolist())
+    top_axes[2].set_xlim(0.0, 500.0)
+    if displayed_values:
+        top_axes[2].set_ylim(0.0, 1.12 * max(displayed_values))
+    top_axes[2].set_xlabel("Lag distance (m)")
+    top_axes[2].set_ylabel("Semivariance")
     top_axes[2].grid(alpha=0.18, linewidth=0.4)
-    _reviewer_panel_heading(top_axes[2], "c", "Variogram reproduction", inline=True, y=1.18)
+    _reviewer_panel_heading(top_axes[2], "c", "Pair-supported variograms", inline=True, y=1.17)
+    for index, (label, color) in enumerate([
+        ("Strike", PUBLICATION_COLORS["blue"]),
+        ("Down dip", PUBLICATION_COLORS["vermillion"]),
+        ("Thickness normal", PUBLICATION_COLORS["green"]),
+    ]):
+        top_axes[2].text(
+            0.04, 0.19 - 0.075 * index, label, transform=top_axes[2].transAxes,
+            color=color, fontsize=8.0, ha="left", va="bottom",
+        )
 
+    # D: directional grade swaths and aligned support counts.
     legend_handles = None
     for index, (key, title) in enumerate([
         ("along_strike", "Strike / corridor"),
@@ -10686,35 +11335,66 @@ def _render_reviewer_figure_7(fig_dir: Path, run_dir: Path, truth: dict) -> None
         ("normal_to_plane", "Thickness normal"),
     ]):
         curve = curves[key]
-        x = np.asarray([np.nan if value is None else value for value in curve["bin_centres_m"]], dtype=float)
-        observed = np.asarray([np.nan if value is None else value for value in curve["observed_composite_mean_tgc_pct"]], dtype=float)
+        x = np.asarray(
+            [np.nan if value is None else value for value in curve["bin_centres_m"]],
+            dtype=float,
+        )
+        observed = np.asarray(
+            [np.nan if value is None else value for value in curve["observed_composite_mean_tgc_pct"]],
+            dtype=float,
+        )
         counts = np.asarray(curve["observed_composite_count"], dtype=int)
-        p10 = np.asarray(curve["ensemble_p10_bin_mean_tgc_pct"], dtype=float)
-        p50 = np.asarray(curve["ensemble_p50_bin_mean_tgc_pct"], dtype=float)
-        p90 = np.asarray(curve["ensemble_p90_bin_mean_tgc_pct"], dtype=float)
+        p10 = np.asarray(
+            [np.nan if value is None else value for value in curve["ensemble_p10_bin_mean_tgc_pct"]],
+            dtype=float,
+        )
+        p50 = np.asarray(
+            [np.nan if value is None else value for value in curve["ensemble_p50_bin_mean_tgc_pct"]],
+            dtype=float,
+        )
+        p90 = np.asarray(
+            [np.nan if value is None else value for value in curve["ensemble_p90_bin_mean_tgc_pct"]],
+            dtype=float,
+        )
         ax = swath_axes[index]
-        band = ax.fill_between(x, p10, p90, color=PUBLICATION_COLORS["blue"], alpha=0.18, linewidth=0)
-        median, = ax.plot(x, p50, color=PUBLICATION_COLORS["blue"], lw=1.2)
-        observed_line, = ax.plot(x, observed, color=PUBLICATION_COLORS["vermillion"], marker="o", ms=2.8, lw=1.0)
-        ax.set_title(title, fontsize=7.4, pad=3)
-        ax.tick_params(axis="x", labelbottom=False); ax.grid(alpha=0.18, linewidth=0.4)
+        band = ax.fill_between(
+            x, p10, p90, color=PUBLICATION_COLORS["blue"], alpha=0.18, linewidth=0
+        )
+        median, = ax.plot(x, p50, color=PUBLICATION_COLORS["blue"], lw=1.25)
+        observed_line, = ax.plot(
+            x, observed, color=PUBLICATION_COLORS["vermillion"],
+            marker="o", ms=3.0, lw=1.05,
+        )
+        ax.set_title(title, fontsize=8.2, pad=4)
+        ax.tick_params(axis="x", labelbottom=False)
+        ax.grid(alpha=0.18, linewidth=0.4)
         if index == 0:
             ax.set_ylabel("Bin mean TGC (%)")
             legend_handles = [observed_line, median, band]
-            _reviewer_panel_heading(ax, "d", "Envelope-aligned directional swaths", inline=True, y=1.18)
+            _reviewer_panel_heading(
+                ax, "d", "Envelope-aligned directional swaths", inline=True, y=1.20
+            )
         count_ax = count_axes[index]
         width = 0.72 * float(np.nanmedian(np.diff(x))) if np.sum(np.isfinite(x)) > 1 else 1.0
-        count_ax.bar(x, counts, width=width, color="#9CA3AF", edgecolor="#4B5563", linewidth=0.35)
-        count_ax.axhline(5.0, color=PUBLICATION_COLORS["vermillion"], ls="--", lw=0.6)
+        count_ax.bar(
+            x, counts, width=width, color="#9CA3AF",
+            edgecolor="#4B5563", linewidth=0.4,
+        )
+        count_ax.axhline(5.0, color=PUBLICATION_COLORS["vermillion"], ls="--", lw=0.7)
         count_ax.set_xlabel("Relative distance (m)")
         if index == 0:
-            count_ax.set_ylabel("Count", fontsize=6.5)
+            count_ax.set_ylabel("Count", fontsize=8.0)
         else:
             count_ax.tick_params(axis="y", labelleft=False)
-        count_ax.tick_params(labelsize=6.5, length=2)
+        count_ax.tick_params(labelsize=8.0, length=2)
+
     if legend_handles is not None:
-        fig.legend(legend_handles, ["Graphitic composites", "Ensemble P50", "Ensemble P10-P90"],
-                   loc="lower center", bbox_to_anchor=(0.5, 0.005), ncol=3, frameon=False, fontsize=6.6)
+        fig.legend(
+            legend_handles,
+            ["Graphitic composites", "Ensemble P50", "Ensemble P10-P90"],
+            loc="lower center", bbox_to_anchor=(0.5, 0.025),
+            ncol=3, frameon=False, fontsize=8.0,
+        )
     _save_reviewer_figure(fig, fig_dir / "model_validation_limits.png", check_spacing=True)
     plt.close(fig)
 
@@ -10733,9 +11413,19 @@ def reframe_for_mme(text: str, truth: dict) -> str:
     gap = truth.get("validation_gap_summaries", {}) or {}
     envelope = gap.get("archive_lode_envelope", {}) or {}
     convergence = gap.get("archive_lode_envelope_convergence", {}) or {}
-    swaths = gap.get("archive_lode_envelope_swaths", {}) or {}
-    if not str(envelope.get("status", "")).startswith("computed"):
-        raise ValueError("MME manuscript requires archive-lode-envelope support diagnostics")
+    matched = gap.get("archive_lode_matched_null_comparison", {}) or {}
+    spatial = gap.get("archive_lode_spatial_patterns", {}) or {}
+    categorical = gap.get("categorical_domain_grouped_validation", {}) or {}
+    variogram = gap.get("variogram_reproduction", {}) or {}
+    required = {
+        "archive envelope": envelope,
+        "matched-envelope comparison": matched,
+        "spatial-pattern summary": spatial,
+    }
+    for label, payload in required.items():
+        if not str(payload.get("status", "")).startswith("computed"):
+            raise ValueError(f"MME manuscript requires {label}: {payload.get('reason', 'not computed')}")
+
     fractional = envelope["support_scenarios"]["fractional_lode_volume"]
     any_cell = envelope["support_scenarios"]["any_lode_intersection"]
     core = envelope["support_scenarios"]["full_cell_lode_core"]
@@ -10745,76 +11435,123 @@ def reframe_for_mme(text: str, truth: dict) -> str:
     prob75 = float(n75.get("map_metrics", {}).get("probability", {}).get("mae", {}).get("p50", float("nan")))
     probcorr75 = float(n75.get("map_metrics", {}).get("probability", {}).get("correlation", {}).get("p50", float("nan")))
     spreadcorr75 = float(n75.get("map_metrics", {}).get("spread", {}).get("correlation", {}).get("p50", float("nan")))
+    canonical_summary = matched["canonical_20_realisation_subsets"]["summary"]
+    null_summary = matched["null_20_realisation_seed_families"]["summary"]
+
+    def med(summary: dict, key: str) -> float:
+        return float(summary[key]["median"])
 
     abstract = f"""## Abstract
-Layer-parallel graphitic schist can define a convincing exploration corridor while leaving the volume used to summarize grade uncertainty poorly specified. We evaluate a 100-realisation, geology-conditioned Sequential Gaussian Simulation ensemble for a Tanzanian stratiform graphite system and then restrict completed outputs to a topography-clipped, archive-derived lode mask at common 50 x 50 x 2 m reporting support. The mask retains {int(envelope['common_support_fine_block_count']):,} 25 x 25 x 2 m blocks ({float(fractional['reporting_volume_fraction_pct']):.3f}% of the reporting volume). The full rectangular-grid ensemble mean is {float(full['ensemble_mean_tgc_pct']):.3f}% total graphitic carbon (TGC), whereas the fractional lode-volume mean is {float(fractional['ensemble_mean_tgc_pct']):.3f}% and the full-cell lode-core mean is {float(core['ensemble_mean_tgc_pct']):.3f}%, compared with {composite_mean:.3f}% for declustered graphitic composites. This is a reporting-support result, not independent grade validation, because the archive mask shares project lithology and threshold information with the SGS inputs. Within the envelope, probability and spread products are evaluated by convergence, variogram-reproduction and directional-swath diagnostics. Five repeated geology-blind sensitivity families retain closer selected global distribution fits, showing that global fit and geological reporting support answer different questions. The study provides a practical framework for separating support choice, conditional grade spread and model-behaviour uncertainty in graphite exploration.
+Layer-parallel graphitic schist defines an exploration corridor, but reporting support controls whether simulated grade uncertainty is read as background dilution or lode behaviour. We evaluate a 100-realisation geology-conditioned Sequential Gaussian Simulation ensemble for a Tanzanian stratiform graphite system and restrict completed outputs to a topography-clipped archive lode envelope at 50 x 50 x 2 m reporting support. The envelope retains {int(envelope['common_support_fine_block_count']):,} fine blocks ({float(fractional['reporting_volume_fraction_pct']):.3f}% of reporting volume), shifting mean TGC from {float(full['ensemble_mean_tgc_pct']):.3f}% in the full grid to {float(fractional['ensemble_mean_tgc_pct']):.3f}%, close to {composite_mean:.3f}% in declustered graphitic composites. On identical envelope support, five conditioned 20-realisation subsets give median above-threshold occupancy {med(canonical_summary, 'envelope_probability_gt_3'):.3f} and TGC spread {med(canonical_summary, 'envelope_p90_minus_p10_tgc_pct'):.3f}%, compared with {med(null_summary, 'envelope_probability_gt_3'):.3f} and {med(null_summary, 'envelope_p90_minus_p10_tgc_pct'):.3f}% across five geology-blind families; the null families retain closer distribution fit. Probability and spread fields stabilise strongly by 75 realisations. Persistent occupancy lies nearer sampled composites, whereas high-spread columns occur farther from support and more often on envelope edges. Geological conditioning therefore converts grade uncertainty into support, persistence and spread diagnostics for relative geological follow-up in layered industrial minerals.
 
 **Keywords:** graphite; conditional simulation; reporting support; geological uncertainty; exploration evaluation; Tanzania"""
     text = _replace_markdown_section(text, "Abstract", "1. Introduction", abstract)
 
     introduction = """## 1. Introduction
 
-Graphite-bearing metasedimentary horizons in the Tanzanian Mozambique Belt commonly follow compositional layering and metamorphic fabric, but this continuity does not establish the certainty of grade, contact position, weathering state or package geometry between drillholes. That distinction matters in graphite exploration because an apparently coherent graphitic corridor can be summarized over very different geological volumes.
+Graphite-bearing metasedimentary horizons in the Tanzanian Mozambique Belt commonly follow compositional layering and metamorphic fabric. That layer-parallel continuity defines an exploration target, but it does not make grade, contact position, weathering state or package geometry equally continuous between drillholes.
 
-Published work has established the regional setting, host rocks and mineralogical context of Tanzanian graphite occurrences (Moye and Msabi, 2021; Das et al., 2026; Case, 2026). A remaining mining-geology problem is how a completed simulation ensemble should be reported when its rectangular computational grid contains both graphitic-support and background volume.
+Published studies establish the regional setting, host rocks and mineralogical character of Tanzanian graphite occurrences (Moye and Msabi, 2021; Das et al., 2026; Case, 2026). The unresolved mining-geology problem is how to distinguish uncertainty in graphitic support from uncertainty in grade when a simulation grid contains both lode and background volume.
 
-Conditional simulation is useful here because it transfers uncertainty across multiple conditional outcomes rather than supplying one preferred grade surface (Deutsch, 2023). Metallic-deposit studies have also shown that domain representation and support can change the apparent behaviour of grade uncertainty (Maleki and Emery, 2015; Paithankar and Chatterjee, 2018). Stratiform graphite has received less attention on this specific reporting-support problem.
+Conditional simulation provides multiple spatial outcomes through which that distinction can be tested (Deutsch, 2023). Studies of stratabound copper and African mineral deposits show that domain representation, anisotropy and reporting support can materially alter apparent uncertainty behaviour (Maleki and Emery, 2015; Paithankar and Chatterjee, 2018), yet this separation has rarely been quantified for stratiform graphite.
 
-This study asks: (1) how strongly does reporting support alter ensemble grade summaries; (2) what conditional grade spread remains inside an archive-derived graphitic lode envelope; (3) how do global-fit diagnostics from a geology-blind sensitivity compare with support-aligned diagnostics; and (4) which products can guide relative geological follow-up without claiming local predictive calibration? The contribution is a geology-led reporting-support and uncertainty framework, not a resource estimate or a local grade-prediction model."""
+This study asks: (1) how strongly reporting support changes ensemble grade summaries; (2) where conditional grade spread and above-threshold persistence occur inside an interpreted graphitic envelope; (3) what remains different when geology-conditioned and geology-blind ensembles are evaluated inside exactly the same volume; and (4) which diagnostics can guide relative geological follow-up. The contribution is a geology-led framework that evaluates support alignment, global distribution fit and geological information as distinct evidence axes."""
     text = _replace_markdown_section(text, "1. Introduction", "2. Geological Setting", introduction)
 
     categorical_methods = """### 3.4 Categorical Sensitivity Used by Grade SGS
 
-Fresh graphitic, weathered graphitic and host/waste classes were assigned from logged composites and sampled from fixed local inverse-distance probability scores within the configured anisotropic search. The archived implementation draws categories independently at grid nodes; it is not indicator SGS, a transition-probability simulation or a spatially coherent geological-body model. Grade SGS was then performed within the sampled class structure. Raw class frequency and entropy products are retained in Online Resource 2 as secondary model-sensitivity diagnostics. They are not used to define the primary reporting envelope or interpreted as calibrated class probabilities."""
+Fresh graphitic, weathered graphitic and host/waste classes were assigned from logged composites and sampled from fixed local inverse-distance probability scores within the configured anisotropic search. The archived implementation draws categories independently at grid nodes rather than using indicator SGS, transition probabilities or a spatially coherent body model. Grade SGS was then performed within the sampled class structure. Raw class frequencies and entropy are retained in Online Resource 2 as secondary sensitivity diagnostics; the archive-derived lode envelope provides the primary reporting support."""
     text, count = re.subn(r"(?ms)^### 3\.4 .*?(?=^### 3\.5 )", categorical_methods + "\n\n", text, count=1)
     if count != 1:
         raise ValueError("could not replace categorical Methods subsection")
 
-    envelope_methods = f"""### 3.9 Archive-Derived Lode Envelope and Model-Behaviour Diagnostics
+    envelope_methods = f"""### 3.9 Archive-Derived Lode Envelope and Spatial Diagnostics
 
-An archive-derived seven-lode mask was examined only as a reporting-support sensitivity. The available mask was generated algorithmically from the overlapping project database using graphitic-coded 2 m composites, a 3% TGC screening rule, fixed gap rules, spatial clustering, roof-and-floor interpolation and block-derived mesh construction. It is not the controlling MRE's unavailable 28 section-interpreted wireframes, and it does not provide independent geological validation. Its simplified construction also uses collar X/Y and collar elevation minus downhole depth rather than the desurveyed interval positions used by the SGS workflow.
+The archive source contains seven lode identifiers. Exact centre matching, common-footprint screening and clipping below its DEM-derived surface retain six identifiers and {int(envelope['common_support_fine_block_count']):,} blocks; {envelope['dominant_retained_lode_id']} contributes {int(envelope['dominant_retained_lode_block_count']):,} blocks ({float(envelope['dominant_retained_lode_fraction_pct']):.2f}%). The available envelope was generated algorithmically from graphitic-coded 2 m composites, a 3% TGC screening rule, gap rules, spatial clustering and roof-and-floor interpolation. The analysis reads only x, y, z, block dimensions, lode identity and topography. Estimated TGC, kriging variance, density, classification, tonnes and contained graphite are excluded.
 
-Only x, y, z, block dimensions, lode identity and the DEM-derived topography field were read from the archived block table. Estimated TGC, kriging variance, neighbourhood counts, density, classification, tonnes and contained graphite were excluded. The 25 x 25 x 2 m blocks were mapped by exact centre alignment to the canonical EPSG:32737 grid. Of {int(envelope['archive_block_count']):,} archived blocks, {int(envelope['inside_canonical_grid_count']):,} lie inside the SGS grid; {int(envelope['removed_above_dem_surface_count'])} centres above the archived surface were removed, leaving {int(envelope['common_support_fine_block_count']):,} common-support blocks. The 1,448 blocks outside the SGS footprint are not compared.
+The 25 x 25 x 2 m archive blocks were mapped by exact centre alignment to the canonical EPSG:32737 grid. At reporting support, each 50 x 50 x 2 m cell receives a fractional lode weight f equal to its retained fine-block count divided by four. For each realisation, the weighted mean is the sum of cell TGC multiplied by f divided by the sum of f. Any-intersection and full-cell-core summaries provide sensitivity brackets around the fractional-volume result. Vertical envelope occupancy is the sum of retained 2 m intervals in each plan column; it is not treated as true thickness.
 
-At reporting support, each 50 x 50 x 2 m cell receives a fractional lode weight f equal to its retained fine-block count divided by four. Primary scalar summaries use the volume-weighted realisation mean, \(\bar{{Z}}_r = \sum_i f_i Z_{{ri}} / \sum_i f_i\). Any-intersection (f > 0) and full-cell-core (f = 1) summaries provide predeclared sensitivity brackets. The original rectangular-grid summaries remain audit comparators. A vertical sum of mask occupancy is labelled vertical envelope occupancy, not true geological thickness. Histogram, Q-Q, variogram and swath diagnostics are reported as model behaviour; no independent blocked validation of the final SGS ensemble is claimed."""
+Plan-map patterns were quantified before interpretation. High spread is the upper decile of envelope-weighted plan P90-P10 TGC spread. Persistent above-threshold occupancy is plan P(TGC > 3%) greater than or equal to 0.80. Reporting-column centres were related to the nearest sampled composite in plan projection, and footprint-edge columns were identified by a one-cell, eight-neighbour erosion. These are support diagnostics rather than prediction errors."""
     text, count = re.subn(r"(?ms)^### 3\.9 .*?(?=^### 3\.10 )", lambda _m: envelope_methods + "\n\n", text, count=1)
     if count != 1:
         raise ValueError("could not replace reporting-support Methods subsection")
 
-    results_43 = f"""### 4.3 Archive-Derived Reporting-Support and Ensemble Behaviour
+    null_methods = """### 3.10 Geology-Blind Composite Null and Matched-Envelope Comparison
 
-The archived lode mask and completed SGS grid share 25 x 25 x 2 m support and EPSG:32737 coordinates. After common-footprint and topography checks, the retained mask occupies {float(fractional['reporting_volume_fraction_pct']):.3f}% of reporting volume. It intersects {int(any_cell['reporting_cell_count']):,} reporting cells and contains {int(core['reporting_cell_count']):,} full lode-core cells. The full rectangular-grid mean is {float(full['ensemble_mean_tgc_pct']):.3f}% TGC; the any-intersection, fractional-volume and full-cell-core means are {float(any_cell['ensemble_mean_tgc_pct']):.3f}%, {float(fractional['ensemble_mean_tgc_pct']):.3f}% and {float(core['ensemble_mean_tgc_pct']):.3f}%, respectively. The fractional and core means differ from the declustered graphitic-composite mean by {float(envelope['fractional_mean_minus_graphitic_composite_mean_tgc_pct']):.3f} and {float(envelope['core_mean_minus_graphitic_composite_mean_tgc_pct']):.3f}% TGC.
+Five independent no-domain isotropic families were completed with seeds 9101, 9201, 9301, 9401 and 9501, each containing 20 realisations. The null configuration uses direct 50 x 50 x 2 m simulation, one whole-population normal-score transform, isotropic 150 m covariance and search, 8-24 neighbours and an enabled vertical trend. The canonical configuration uses 25 x 25 x 2 m simulation aggregated to the same reporting support, stochastic hard domains, domain-wise transforms, 250/200/20 m geological-axis covariance and search, 3-20 neighbours and no grade trend. This is a composite configuration sensitivity, not a one-factor ablation.
 
-At n = 75, envelope probability MAE is {prob75:.3f}, probability correlation is {probcorr75:.3f}, and spread correlation is {spreadcorr75:.3f} relative to the 100-realisation reference. Matched-space variogram and envelope-aligned directional-swath results are shown in Figure 7. These are numerical stability and model-behaviour diagnostics on the selected reporting support."""
+For a realisation-count and volume-matched comparison, the same fractional archive weight was applied to every null family and to five contiguous, non-overlapping 20-realisation subsets of the canonical ensemble. Envelope means, P(TGC > 3%), cellwise P90-P10 spread, decluster-weighted graphitic histogram overlap, weighted Q-Q RMSE and geological-axis swath correlations were recomputed inside the identical support. All five seed families and all five canonical subsets are reported without performance selection."""
+    text, count = re.subn(r"(?ms)^### 3\.10 .*?(?=^### 3\.11 )", null_methods + "\n\n", text, count=1)
+    if count != 1:
+        raise ValueError("could not replace matched-null Methods subsection")
+    text = text.replace("Directional swaths in Figure 7 were computed", "Directional swaths were computed")
+
+    results_43 = f"""### 4.3 Reporting Support, Ensemble Behaviour and Matched Null Comparison
+
+After common-footprint and topography checks, the retained envelope occupies {float(fractional['reporting_volume_fraction_pct']):.3f}% of reporting volume, intersects {int(any_cell['reporting_cell_count']):,} reporting cells and contains {int(core['reporting_cell_count']):,} full-cell lode-core cells. The full-grid, any-intersection, fractional-volume and full-cell-core means are {float(full['ensemble_mean_tgc_pct']):.3f}%, {float(any_cell['ensemble_mean_tgc_pct']):.3f}%, {float(fractional['ensemble_mean_tgc_pct']):.3f}% and {float(core['ensemble_mean_tgc_pct']):.3f}% TGC, respectively. The archive source has seven lode identifiers, but retained blocks are strongly concentrated in L01: {int(envelope['dominant_retained_lode_block_count']):,} of {int(envelope['common_support_fine_block_count']):,} blocks ({float(envelope['dominant_retained_lode_fraction_pct']):.2f}%). L02 lies outside the common SGS footprint.
+
+Inside identical fractional envelope support, the five canonical 20-realisation subsets have median mean TGC {med(canonical_summary, 'envelope_mean_tgc_pct'):.3f}%, P(TGC > 3%) {med(canonical_summary, 'envelope_probability_gt_3'):.3f}, P90-P10 spread {med(canonical_summary, 'envelope_p90_minus_p10_tgc_pct'):.3f}%, histogram overlap {med(canonical_summary, 'envelope_histogram_overlap_graphitic'):.3f} and Q-Q RMSE {med(canonical_summary, 'envelope_qq_rmse_graphitic_tgc_pct'):.3f}% TGC. The five null families give {med(null_summary, 'envelope_mean_tgc_pct'):.3f}%, {med(null_summary, 'envelope_probability_gt_3'):.3f}, {med(null_summary, 'envelope_p90_minus_p10_tgc_pct'):.3f}%, {med(null_summary, 'envelope_histogram_overlap_graphitic'):.3f} and {med(null_summary, 'envelope_qq_rmse_graphitic_tgc_pct'):.3f}%, respectively. Median strike/down-dip/thickness-normal swath correlations are {med(canonical_summary, 'envelope_swath_corr_strike'):.3f}/{med(canonical_summary, 'envelope_swath_corr_down_dip'):.3f}/{med(canonical_summary, 'envelope_swath_corr_thickness_normal'):.3f} for the canonical subsets and {med(null_summary, 'envelope_swath_corr_strike'):.3f}/{med(null_summary, 'envelope_swath_corr_down_dip'):.3f}/{med(null_summary, 'envelope_swath_corr_thickness_normal'):.3f} for the null families.
+
+At n = 75, envelope probability MAE is {prob75:.3f}, probability correlation is {probcorr75:.3f}, and spread correlation is {spreadcorr75:.3f} relative to the 100-realisation reference. Matched-space variogram reproduction has weighted RMSE {float(variogram.get('weighted_rmse', float('nan'))):.3f}; the thickness-normal direction retains two pair-supported lags. Figure 7 and Table 4 report these results."""
     text, count = re.subn(r"(?ms)^### 4\.3 .*?(?=^### 4\.4 )", results_43 + "\n\n", text, count=1)
     if count != 1:
         raise ValueError("could not replace Results 4.3")
 
-    results_46 = """### 4.6 Envelope-Constrained Spatial Uncertainty Products
+    high_thirds = spatial["high_spread_south_central_north_counts"]
+    results_46 = f"""### 4.6 Envelope-Constrained Spatial Uncertainty Products
 
-Figure 5 maps the archive-derived lode footprint together with envelope-weighted cell P50 TGC, P90-P10 TGC spread and P(TGC > 3%). White map areas are outside the common lode-envelope support. Figure 6 carries the same mask into plan and east-west section views; the DEM-derived surface line is shown where the archived topography field is available. Fixed realisations 1, 50 and 100 display between-realisation grade variation on the same masked section. Raw categorical entropy, calibration and confusion diagnostics remain in Online Resource 2 rather than defining the main uncertainty maps."""
+The plan footprint contains {int(spatial['plan_envelope_column_count']):,} envelope-intersecting reporting columns. The upper-decile spread threshold is {float(spatial['high_spread_threshold_tgc_pct']):.3f}% TGC, selecting {int(spatial['high_spread_column_count']):,} columns ({float(spatial['high_spread_column_fraction_pct']):.2f}%); {int(high_thirds[1])} of these ({100.0 * int(high_thirds[1]) / int(spatial['high_spread_column_count']):.1f}%) lie in the central northing third. Their median plan distance to the nearest sampled composite is {float(spatial['high_spread_median_nearest_composite_plan_distance_m']):.1f} m, compared with {float(spatial['all_columns_median_nearest_composite_plan_distance_m']):.1f} m for all envelope columns. High-spread columns occur beyond 100 m from a sampled composite in {float(spatial['high_spread_columns_beyond_100m_pct']):.1f}% of cases and on the plan-footprint edge in {float(spatial['high_spread_on_footprint_edge_pct']):.1f}% of cases; the corresponding background proportions are {float(spatial['other_columns_beyond_100m_pct']):.1f}% and {float(spatial['footprint_edge_column_fraction_pct']):.1f}%.
+
+Persistent plan occupancy, defined by P(TGC > 3%) greater than or equal to 0.80, occurs in {int(spatial['persistent_probability_column_count']):,} columns ({float(spatial['persistent_probability_column_fraction_pct']):.2f}%). These columns have median nearest-composite distance {float(spatial['persistent_median_nearest_composite_plan_distance_m']):.1f} m and mean vertical envelope occupancy {float(spatial['persistent_mean_vertical_occupancy_m']):.1f} m, compared with {float(spatial['all_columns_mean_vertical_occupancy_m']):.1f} m across the footprint. High spread and persistent occupancy coincide in {int(spatial['joint_high_spread_persistent_column_count']):,} columns ({float(spatial['joint_high_spread_persistent_column_fraction_pct']):.2f}%); {float(spatial['joint_northern_third_fraction_pct']):.1f}% of that joint set lies in the northern third. Figure 5 maps these plan patterns. Figure 6 shows their expression on the selected east-west section together with fixed realisations 1, 50 and 100 on a common scale."""
     text, count = re.subn(r"(?ms)^### 4\.6 .*?(?=^### 4\.7 )", results_46 + "\n\n", text, count=1)
     if count != 1:
         raise ValueError("could not replace Results 4.6")
 
-    discussion_51 = """### 5.1 Geological Support and Reporting-Envelope Effects
+    within = (categorical.get("search_support", {}) or {}).get("within_support", {}) or {}
+    entropy_rank = (categorical.get("entropy_error_ranking", {}) or {}).get("within_search_support", {}) or {}
+    results_47 = f"""### 4.7 Categorical and Withheld Validation Results
 
-The main result is that the full computational box and graphitic-support volume answer different questions. The full box includes a large background component, whereas the archive-derived mask confines summary statistics to a project-interpreted graphitic corridor. The difference between 2.056% TGC in the full box and 3.829% TGC under fractional lode-volume weighting is therefore a support effect, not evidence that one summary is inherently more accurate."""
-    discussion_52 = """### 5.2 What the Envelope Adds to Uncertainty Interpretation
+Five-fold hole-grouped categorical validation gives macro-F1 {float(categorical.get('macro_f1', float('nan'))):.3f}, balanced accuracy {float(categorical.get('balanced_accuracy', float('nan'))):.3f} and graphitic-host ROC-AUC {float(categorical.get('graphitic_vs_host', {}).get('roc_auc', float('nan'))):.3f}. Within anisotropic search support, Brier skill is {float(within.get('brier_skill_score', float('nan'))):.3f} and entropy ranks held-out classification errors with ROC-AUC {float(entropy_rank.get('entropy_error_roc_auc', float('nan'))):.3f}. The full confusion matrix and reliability bins are supplied in Online Resource 2. The 500 m block, leave-hole and leave-section grade baselines have RMSE 2.261%, 2.179% and 2.232% TGC, respectively. Table 4 assembles the validation results on their corresponding evidence axes."""
+    text, count = re.subn(r"(?ms)^### 4\.7 .*?(?=^## 5\. Discussion\s*$)", results_47 + "\n\n", text, count=1)
+    if count != 1:
+        raise ValueError("could not replace Results 4.7")
 
-Within the common envelope, probability and TGC-spread maps identify where the completed ensemble expresses persistent above-threshold occupancy and where its grade range remains broad. These maps are useful for comparing relative geological follow-up priorities inside the interpreted corridor. The vertical occupancy display is deliberately not treated as a true-thickness estimate, because the available mask is a block representation and may include disconnected vertical intervals."""
+    discussion_51 = f"""### 5.1 Geological Support and Reporting-Envelope Effects
+
+The central geological result is the separation of computational support from graphitic support. The full grid mixes the interpreted lode corridor with a large background volume, whereas the fractional envelope asks how the completed ensemble behaves where graphitic support has already been interpreted. The shift from {float(full['ensemble_mean_tgc_pct']):.3f}% to {float(fractional['ensemble_mean_tgc_pct']):.3f}% TGC therefore resolves the apparent mean deficit without altering a single simulated value.
+
+This distinction follows the broader geostatistical principle that uncertainty is inseparable from domain definition and support. Simulation carries uncertainty through alternative spatial outcomes, while geological domains determine which outcomes are compared and reported (Deutsch, 2023; Maleki and Emery, 2015). Paithankar and Chatterjee (2018) similarly show in an African mineral-deposit setting that ensemble behaviour must be read together with spatial support rather than from global reproduction alone. For the present graphite system, the envelope makes that support choice explicit and auditable."""
+
+    discussion_52 = f"""### 5.2 Spatial Meaning and Geological Follow-Up
+
+The plan patterns distinguish two practical situations. Persistent occupancy is concentrated closer to sampled composites and in thicker vertically occupied columns, so it identifies parts of the interpreted corridor where above-threshold support recurs across the ensemble. High spread is farther from sampled support and disproportionately represented on footprint edges, pointing to locations where contact position, continuation of the package, or local grade variability remains less constrained. The small joint set combines persistence with broad conditional spread; those columns are the strongest candidates for section review, contact verification and holes oriented across the package.
+
+The transferable value is the separation of geometry and grade uncertainty. In layered industrial-mineral and stratabound systems, a coherent host horizon can coexist with uncertain margins and grade distribution. Ensemble geological studies likewise use spatial variability and topology to locate where sparse data and structural assumptions leave geometry uncertain (Lindsay et al., 2012; Schaaf and Bond, 2019; Schaaf et al., 2021; Nie et al., 2023). Joint rock-type/grade simulation and African deposit studies reach the complementary conclusion that domain architecture and grade uncertainty should be carried together but diagnosed separately (Maleki and Emery, 2015; Paithankar and Chatterjee, 2018). Here, Figures 5 and 6 turn those principles into mappable follow-up classes rather than one undifferentiated uncertainty surface."""
+
+    discussion_53 = f"""### 5.3 What the Matched Null Comparison Resolves
+
+Applying both model families to the identical envelope shows that the null's closer distribution fit is not produced only by background volume: its median envelope histogram overlap remains {med(null_summary, 'envelope_histogram_overlap_graphitic'):.3f} versus {med(canonical_summary, 'envelope_histogram_overlap_graphitic'):.3f}. At the same time, the conditioned subsets show higher above-threshold persistence and a {100.0 * (1.0 - med(canonical_summary, 'envelope_p90_minus_p10_tgc_pct') / med(null_summary, 'envelope_p90_minus_p10_tgc_pct')):.1f}% narrower median spread, with slightly stronger strike correlation; the null has stronger median down-dip and thickness-normal correlations. Repetition across all five seeds establishes the robustness of this global-fit behaviour. The comparison therefore supports two explicit evaluation axes: distribution reproduction and the geological organisation of conditional uncertainty (Deutsch, 2023; Bassani et al., 2024)."""
+
     discussion_54 = """### 5.4 Categorical Sensitivity and Geological Information
 
-The categorical workflow remains informative as a modelling sensitivity, but whole-hole validation does not support calibrated class probabilities or independent fresh-weathered separation. The archive-derived envelope therefore carries the primary reporting-support role, while raw categorical frequency and entropy remain secondary evidence about how the local scoring rule partitions the completed simulation. The approach preserves an explicit distinction between model-implied spatial patterns and externally verified geology."""
+Hole-grouped validation shows that the local categorical scorer retains modest graphitic-host ranking, while fresh and weathered graphite remain poorly separated. Raw categorical probabilities and entropy are consequently most useful for relative within-support patterns. The archive envelope carries the main support argument because it is a separate block representation with explicit geometric weights, whereas categorical frequencies show how the archived SGS implementation partitions local classes.
+
+This hierarchy is consistent with joint domain-grade simulation practice, where categorical architecture must be evaluated independently of grade reproduction (Maleki and Emery, 2015; Talebi et al., 2016; Mery et al., 2017; Iliyas and Madani, 2021). Boundary-aware studies likewise show that contact behaviour should be diagnosed rather than assumed (Emery and Maleki, 2019; Maleki and Emery, 2020). Plurigaussian simulation provides a more spatially coherent alternative for future categorical-domain modelling than independent local draws (Emery, 2007). The present conditioning contributes an explicit route from logged classes and structural axes to support-aligned probability, spread and directional diagnostics, even when a geology-blind configuration produces a closer marginal distribution."""
+
     discussion_55 = """### 5.5 Implications for Graphite Exploration and Resource Evaluation
 
-The reporting envelope provides a practical sequence for geological follow-up. The lode-support map shows where simulation summaries are being compared with an interpreted graphitic corridor. Envelope-weighted P50 TGC communicates central grade behaviour on that support, P90-P10 TGC spread identifies relative grade uncertainty, and P(TGC > 3%) shows modelled above-threshold occupancy. The full-grid comparison prevents those products from being judged only by a global histogram. These are relative geological follow-up products; they do not optimise drilling, classify resources or establish product quality."""
-    limitation = """### 5.6 Limitations and Future Validation
+Table 5 translates each output into a specific geological action. The envelope defines the volume being evaluated; persistent occupancy identifies recurrent graphitic support; high spread marks conditional grade uncertainty; and their overlap prioritises places where support persists but its grade range remains broad. Raw categorical entropy is retained for re-logging and contact review within mapped search support, while the matched null comparison prevents model selection from being reduced to histogram agreement. Comparable mining-uncertainty frameworks tie uncertainty classes to investigation priorities and decision use (Tichauer and De Tomi, 2019; Lindi et al., 2024).
 
-The archive-derived mask shares drillholes, graphitic coding and threshold logic with the SGS inputs, uses simplified vertical run geometry, and is not the unavailable 28-wireframe controlling MRE interpretation; its agreement with the SGS is therefore a reporting-support sensitivity rather than independent validation. The categorical simulator uses independent local draws, the null families change several controls together, and final-grade blocked calibration remains unavailable. Future work should test desurveyed section interpretations, spatially coherent categorical models, locally varying structure and truly independent drilling or blocked SGS validation."""
+Used together, the products establish an efficient follow-up sequence: review edge and high-spread columns on section, check whether mapped contacts and foliation support the envelope geometry, then place cross-package or infill drilling where the expected information gain is greatest. This is directly relevant to layered industrial minerals because it separates the question "is the host package present?" from "how variable is grade within it?" before either is converted into a mine-planning assumption."""
+
+    limitation = f"""### 5.6 Limitations and Future Validation
+
+The evidence is dominated by L01, which supplies {float(envelope['dominant_retained_lode_fraction_pct']):.2f}% of retained archive blocks, so transfer among the six retained lode identifiers remains to be tested. The envelope shares drillhole, lithology and threshold information with the SGS and uses simplified vertical-run geometry; categorical classes are sampled by independent local draws; the null families change several controls together; and withheld grade baselines are not blocked reruns of the final SGS. Future validation should therefore add desurveyed section interpretations, a calibrated plurigaussian or rapid-updating domain model (Emery, 2007; Abulkhair et al., 2026), locally varying structure and independent drilling or fully blocked SGS calibration."""
+
     for heading, content, next_heading in [
         ("5.1", discussion_51, "5.2"),
         ("5.2", discussion_52, "5.3"),
+        ("5.3", discussion_53, "5.4"),
         ("5.4", discussion_54, "5.5"),
         ("5.5", discussion_55, "5.6"),
         ("5.6", limitation, "6. Conclusions"),
@@ -10829,14 +11566,19 @@ The archive-derived mask shares drillholes, graphitic coding and threshold logic
 
     conclusions = f"""## 6. Conclusions
 
-1. The full rectangular grid and graphitic-support reporting volume give materially different ensemble summaries. The completed full-grid mean is {float(full['ensemble_mean_tgc_pct']):.3f}% TGC, compared with {float(fractional['ensemble_mean_tgc_pct']):.3f}% under fractional archive-lode weighting and {float(core['ensemble_mean_tgc_pct']):.3f}% in the full-cell core.
+1. Reporting support controls the geological meaning of ensemble statistics. Mean TGC is {float(full['ensemble_mean_tgc_pct']):.3f}% over the full grid and {float(fractional['ensemble_mean_tgc_pct']):.3f}% under fractional lode-envelope weighting, close to the {composite_mean:.3f}% declustered graphitic-composite mean.
 
-2. The archive-derived, DEM-clipped lode envelope provides a transparent common support for reporting conditional P50 TGC, TGC spread and above-threshold occupancy. It is a sensitivity to domain representation and reporting support, not independent validation.
+2. The conditioned ensemble resolves persistent above-threshold support from broad conditional grade spread. Persistent columns lie closer to sampled composites; high-spread columns lie farther from support and occur more often along envelope edges.
 
-3. Envelope probability and spread products can be assessed for Monte Carlo stability, covariance behaviour and directional reproduction. Their interpretation remains relative to the completed model and the selected support.
+3. On identical support and equal realisation count, the null families retain closer graphitic-distribution fit, while the conditioned subsets have higher above-threshold persistence, narrower TGC spread and slightly stronger strike reproduction. Global fit and geological information are therefore complementary evaluation axes.
 
-4. The repeated geology-blind sensitivity retains closer selected global distribution metrics. Global fit, support alignment and geological information should therefore be reported as separate evaluation axes rather than collapsed into one model ranking."""
-    text, count = re.subn(r"(?ms)^## 6\. Conclusions\s*$.*?(?=^## 7\. Statements and Declarations\s*$)", conclusions + "\n\n", text, count=1)
+4. The practical workflow is transferable to layered industrial minerals: define common geological support, compare model families inside that support, test ensemble and directional behaviour, and target follow-up where support persistence and grade spread overlap."""
+    text, count = re.subn(
+        r"(?ms)^## 6\. Conclusions\s*$.*?(?=^## 7\. Statements and Declarations\s*$)",
+        conclusions + "\n\n",
+        text,
+        count=1,
+    )
     if count != 1:
         raise ValueError("could not replace Conclusions")
     return text
@@ -10848,44 +11590,56 @@ def reframe_tables_for_mme(text: str, truth: dict) -> str:
     env = gap.get("archive_lode_envelope", {}) or {}
     conv = gap.get("archive_lode_envelope_convergence", {}) or {}
     swaths = gap.get("archive_lode_envelope_swaths", {}) or {}
+    matched = gap.get("archive_lode_matched_null_comparison", {}) or {}
+    spatial = gap.get("archive_lode_spatial_patterns", {}) or {}
     cat = gap.get("categorical_domain_grouped_validation", {}) or {}
-    m = truth.get("validation_metrics", {}) or {}
     s = env.get("support_scenarios", {}) or {}
     n75 = (conv.get("checkpoint_summaries", {}) or {}).get("75", {}) or {}
     c75 = n75.get("map_metrics", {}) or {}
-    curve = swaths.get("curves", {}) or {}
+    curves = swaths.get("curves", {}) or {}
     corr = "/".join(
-        "NA" if curve.get(key, {}).get("observed_vs_ensemble_p50_correlation") is None
-        else f"{float(curve[key]['observed_vs_ensemble_p50_correlation']):.3f}"
+        "NA" if curves.get(key, {}).get("observed_vs_ensemble_p50_correlation") is None
+        else f"{float(curves[key]['observed_vs_ensemble_p50_correlation']):.3f}"
         for key in ("along_strike", "down_dip", "normal_to_plane")
     )
+    canonical = matched["canonical_20_realisation_subsets"]["summary"]
+    null = matched["null_20_realisation_seed_families"]["summary"]
+
+    def mr(summary: dict, key: str, decimals: int = 3) -> str:
+        metric = summary[key]
+        return (
+            f"{float(metric['median']):.{decimals}f} "
+            f"({float(metric['min']):.{decimals}f}-{float(metric['max']):.{decimals}f})"
+        )
+
     table4 = f"""## Table 4. Validation and Information-Content Comparison
 
-| Validation axis | Geology-conditioned evidence | Null or reference comparison | Supported interpretation |
+| Validation axis | Geology-conditioned evidence | Matched reference or null evidence | Supported interpretation |
 |---|---|---|---|
-| Archive-derived reporting support | {int(env.get('common_support_fine_block_count', 0)):,} common 25 x 25 x 2 m blocks; fractional lode volume {float(s['fractional_lode_volume']['reporting_volume_fraction_pct']):.3f}% | any-intersection {int(s['any_lode_intersection']['reporting_cell_count']):,} reporting cells; full-cell core {int(s['full_cell_lode_core']['reporting_cell_count']):,} cells | Support sensitivity only; the seven-lode mask shares project data and is not independent validation |
-| Support-aligned ensemble means | full box {float(s['full_rectangular_grid']['ensemble_mean_tgc_pct']):.3f}%; any lode cell {float(s['any_lode_intersection']['ensemble_mean_tgc_pct']):.3f}%; fractional lode volume {float(s['fractional_lode_volume']['ensemble_mean_tgc_pct']):.3f}%; core {float(s['full_cell_lode_core']['ensemble_mean_tgc_pct']):.3f}% TGC | declustered graphitic composites {float(env.get('declustered_graphitic_composite_mean_tgc_pct', float('nan'))):.3f}% TGC | The apparent full-grid deficit is a reporting-support difference, not direct local validation |
-| Envelope ensemble stability | n=75 probability MAE {float(c75.get('probability', {}).get('mae', {}).get('p50', float('nan'))):.3f}; probability r {float(c75.get('probability', {}).get('correlation', {}).get('p50', float('nan'))):.3f}; spread r {float(c75.get('spread', {}).get('correlation', {}).get('p50', float('nan'))):.3f} | 100-realisation envelope reference | Numerical stability at selected reporting support, not predictive calibration |
-| Variogram and envelope-aligned swaths | matched-space variogram weighted RMSE 0.237; graphitic-composite versus envelope P50 swath r {corr} | pair-limited thickness-normal direction retained as caveat | Tests covariance and directional behaviour on matched reporting support |
-| Categorical sensitivity | macro-F1 {float(cat.get('macro_f1', float('nan'))):.3f}; balanced accuracy {float(cat.get('balanced_accuracy', float('nan'))):.3f}; graphitic-host ROC-AUC {float(cat.get('graphitic_vs_host', {}).get('roc_auc', float('nan'))):.3f}; raw Brier skill {float(cat.get('graphitic_vs_host', {}).get('brier_skill_score', float('nan'))):.3f} | grouped whole-hole folds with zero leakage | Raw categorical products are secondary sensitivity diagnostics, not calibrated reporting boundaries |
-| Full-grid null sensitivity | canonical histogram overlap {float(m.get('hist_overlap', float('nan'))):.3f}; Q-Q RMSE {float(m.get('qq_rmse', float('nan'))):.3f} | five independent no-domain seed families in Online Resource 2 | Global fit and support-aligned interpretation remain separate evaluation axes |
-| Withheld grade baselines | 500 m block/leave-hole/leave-section RMSE 2.261/2.179/2.232% TGC | simple spatial estimators under held-out support | Bounds local prediction; no blocked rerun of final SGS is claimed |
+| Archive-derived reporting support | {int(env.get('common_support_fine_block_count', 0)):,} common 25 x 25 x 2 m blocks; fractional volume {float(s['fractional_lode_volume']['reporting_volume_fraction_pct']):.3f}% | six retained lode IDs; L01 contributes {float(env.get('dominant_retained_lode_fraction_pct', float('nan'))):.2f}% | Common support is explicit; evidence primarily represents L01 |
+| Support-aligned means | full grid {float(s['full_rectangular_grid']['ensemble_mean_tgc_pct']):.3f}%; fractional envelope {float(s['fractional_lode_volume']['ensemble_mean_tgc_pct']):.3f}%; core {float(s['full_cell_lode_core']['ensemble_mean_tgc_pct']):.3f}% TGC | declustered graphitic composites {float(env.get('declustered_graphitic_composite_mean_tgc_pct', float('nan'))):.3f}% TGC | Full-grid and graphitic-support means answer different volume questions |
+| Matched 20-versus-20 envelope comparison | mean {mr(canonical, 'envelope_mean_tgc_pct')}%; P(TGC > 3%) {mr(canonical, 'envelope_probability_gt_3')}; spread {mr(canonical, 'envelope_p90_minus_p10_tgc_pct')}%; histogram overlap {mr(canonical, 'envelope_histogram_overlap_graphitic')}; Q-Q RMSE {mr(canonical, 'envelope_qq_rmse_graphitic_tgc_pct')}% | null mean {mr(null, 'envelope_mean_tgc_pct')}%; P(TGC > 3%) {mr(null, 'envelope_probability_gt_3')}; spread {mr(null, 'envelope_p90_minus_p10_tgc_pct')}%; overlap {mr(null, 'envelope_histogram_overlap_graphitic')}; Q-Q RMSE {mr(null, 'envelope_qq_rmse_graphitic_tgc_pct')}% | Null retains closer marginal fit; conditioning gives higher persistence and narrower conditional spread on identical support |
+| Envelope-aligned directional swaths | canonical subset median strike/down-dip/normal r {float(canonical['envelope_swath_corr_strike']['median']):.3f}/{float(canonical['envelope_swath_corr_down_dip']['median']):.3f}/{float(canonical['envelope_swath_corr_thickness_normal']['median']):.3f} | null median {float(null['envelope_swath_corr_strike']['median']):.3f}/{float(null['envelope_swath_corr_down_dip']['median']):.3f}/{float(null['envelope_swath_corr_thickness_normal']['median']):.3f} | Directional reproduction is mixed; no overall model winner is assigned |
+| Spatial support pattern | high-spread median nearest-composite distance {float(spatial['high_spread_median_nearest_composite_plan_distance_m']):.1f} m; {float(spatial['high_spread_on_footprint_edge_pct']):.1f}% on footprint edge | persistent-occupancy median distance {float(spatial['persistent_median_nearest_composite_plan_distance_m']):.1f} m; joint set {int(spatial['joint_high_spread_persistent_column_count'])} columns | Separates cross-package/contact follow-up from recurrent graphitic support |
+| Ensemble and variogram behaviour | n=75 probability MAE {float(c75.get('probability', {}).get('mae', {}).get('p50', float('nan'))):.3f}; probability r {float(c75.get('probability', {}).get('correlation', {}).get('p50', float('nan'))):.3f}; spread r {float(c75.get('spread', {}).get('correlation', {}).get('p50', float('nan'))):.3f}; full-ensemble swath r {corr} | matched-space variogram weighted RMSE 0.237; thickness-normal direction has two pair-supported lags | Quantifies Monte Carlo and covariance behaviour on selected support |
+| Categorical and withheld validation | macro-F1 {float(cat.get('macro_f1', float('nan'))):.3f}; balanced accuracy {float(cat.get('balanced_accuracy', float('nan'))):.3f}; graphitic-host ROC-AUC {float(cat.get('graphitic_vs_host', {}).get('roc_auc', float('nan'))):.3f} | within-support Brier skill {float((cat.get('search_support', {}).get('within_support', {}) or {}).get('brier_skill_score', float('nan'))):.3f}; 500 m block/leave-hole/leave-section grade RMSE 2.261/2.179/2.232% TGC | Categorical fields rank relative patterns; withheld baselines bound local predictive evidence |
 """
     table5 = """## Table 5. Practical Decision-Use Matrix for Graphite Exploration and Resource Evaluation
 
-| Product | Geological meaning | Validation support | Appropriate use |
+| Product | Geological meaning | Evidence used | Practical use |
 |---|---|---|---|
-| Archive-derived lode envelope | Common reporting support for the interpreted graphitic corridor | Exact grid alignment, common-footprint and DEM-surface checks | Compare completed SGS summaries inside versus outside the project-derived envelope |
-| Envelope-weighted P50 TGC | Central conditional grade behaviour inside the selected support | Completed ensemble and support-sensitivity brackets | Compare broad graphitic-support sections; not a local grade prediction |
-| P90-P10 TGC spread | Conditional grade range within the selected support | Envelope convergence, variogram reproduction and directional swaths | Identify relative grade-uncertainty zones for geological follow-up |
-| P(TGC > 3%) | Modelled above-threshold occupancy inside the envelope | Completed ensemble and support-aligned maps | Compare relative persistence of modelled above-threshold support |
-| Raw categorical frequencies and entropy | Sensitivity of the local categorical scoring rule | Grouped categorical validation in Online Resource 2 | Audit relative model ambiguity only; do not treat as calibrated boundary probability |
-| Geology-blind null sensitivity | Global-distribution behaviour under a composite alternate configuration | Five independent 20-realisation families | Prevent model choice from relying only on histogram or Q-Q fit |
+| Archive-derived lode envelope | Common volume for the interpreted graphitic corridor | Exact support alignment, common-footprint and DEM checks | Keep grade summaries tied to an explicit geological volume |
+| Persistent P(TGC > 3%) | Above-threshold support recurring across realisations | Completed ensemble, n=75 stability and distance-to-support analysis | Identify corridor segments suitable for step-out confirmation |
+| P90-P10 TGC spread | Conditional grade range inside the envelope | Ensemble convergence, variogram reproduction and directional swaths | Target infill sampling where grade remains variable |
+| Joint persistence and high spread | Graphitic support persists while conditional grade remains broad | Upper-decile spread and P >= 0.80 co-location | Prioritise section review and holes oriented across the package |
+| Raw categorical frequencies and entropy | Relative ambiguity in the archived local class scorer | Hole-grouped validation within mapped search support | Guide re-logging and contact review; keep absolute class calibration separate |
+| Matched geology-blind comparison | Behaviour of an alternate configuration inside the same lode volume | Five independent null seeds and five canonical 20-realisation subsets | Evaluate distribution fit and geological organisation on separate axes |
 """
     text, count = re.subn(r"(?ms)^## Table 4\..*?(?=^## Table 5\.)", table4 + "\n", text, count=1)
     if count != 1:
         raise ValueError("could not replace Table 4")
     text = re.sub(r"(?ms)^## Table 5\..*\Z", table5.rstrip() + "\n", text, count=1)
+    text = text.replace("| Online Resource 2 | - | 11 worksheets |", "| Online Resource 2 | - | 13 worksheets |")
     return text
 
 
@@ -10893,19 +11647,17 @@ def build_figure_captions_md(truth: dict, profile: str) -> str:
     text = _ORIGINAL_BUILD_FIGURE_CAPTIONS_MD(truth, profile)
     gap = truth.get("validation_gap_summaries", {}) or {}
     env = gap.get("archive_lode_envelope", {}) or {}
-    conv = gap.get("archive_lode_envelope_convergence", {}) or {}
+    spatial = gap.get("archive_lode_spatial_patterns", {}) or {}
     swaths = gap.get("archive_lode_envelope_swaths", {}) or {}
-    s = env.get("support_scenarios", {}) or {}
-    n75 = (conv.get("checkpoint_summaries", {}) or {}).get("75", {}) or {}
     curves = swaths.get("curves", {}) or {}
     corr = "/".join(
         "NA" if curves.get(key, {}).get("observed_vs_ensemble_p50_correlation") is None
         else f"{float(curves[key]['observed_vs_ensemble_p50_correlation']):.3f}"
         for key in ("along_strike", "down_dip", "normal_to_plane")
     )
-    fig5 = """**Figure 5.** Archive-derived lode-envelope reporting products. (a) Vertical envelope occupancy from retained 25 x 25 x 2 m blocks aggregated to reporting support; it is an occupancy display, not true geological thickness. (b) Envelope-weighted cell P50 TGC. (c) Envelope-weighted P90-P10 TGC spread. (d) Envelope-weighted P(TGC > 3%). Maps share extent, collar frame and white outside-mask treatment. The mask is an algorithmic seven-lode, DEM-clipped reporting-support sensitivity derived from overlapping project lithology and threshold information; it is not independent validation."""
-    fig6 = """**Figure 6.** Plan and section expression of the archive-derived reporting envelope. (a) Envelope-constrained plan-view TGC spread with lode-footprint boundary, drill traces, collars and selected section line. (b) P(TGC > 3%) and (c) P90-P10 TGC spread on the east-west section, both masked outside the lode envelope. (d)-(f) Fixed realisations 1, 50 and 100 on the same masked section and colour scale. The black line is the archived DEM-derived surface where available; black points are projected composite observations within the plus or minus 75 m slab. Panels (b)-(f) use 4x vertical exaggeration. The figure shows model behaviour inside a common reporting support, not independent lode validation."""
-    fig7 = f"""**Figure 7.** Reporting-support sensitivity and envelope-aligned model behaviour. (a) Ensemble mean TGC for the full rectangular box, any lode-intersection cells, fractional lode volume and full-cell lode core; labels give reporting-volume fractions and the dashed line is the declustered graphitic-composite mean. (b) Envelope probability MAE, spread correlation and hotspot Jaccard versus number of realisations. (c) Matched-space input variograms and simulation envelopes. (d) Graphitic-composite swaths and envelope P50 with P10-P90 bands along strike/corridor, down dip and thickness normal; aligned bars give composite support. Swath P50 correlations are {corr}. The lode-envelope comparison is a support sensitivity because both representations share project data."""
+    fig5 = f"""**Figure 5.** Archive-derived lode-envelope reporting products. (a) Vertical envelope occupancy from retained 25 x 25 x 2 m blocks aggregated to reporting support. (b) Envelope-weighted cell P50 TGC. (c) P90-P10 TGC spread; the black outline marks the upper-decile threshold ({float(spatial['high_spread_threshold_tgc_pct']):.3f}% TGC). (d) P(TGC > 3%); the black outline marks P = 0.80. All panels share extent, collar frame and white outside-mask treatment. L01 contributes {float(env['dominant_retained_lode_fraction_pct']):.2f}% of retained blocks, so the mapped pattern primarily represents L01."""
+    fig6 = """**Figure 6.** Plan and section expression of the archive-derived reporting envelope. (a) Plan-view TGC spread with the upper-decile spread outline, lode-footprint boundary, drill traces, collars and selected section line. (b) P(TGC > 3%) and (c) P90-P10 TGC spread on the east-west section. (d)-(f) Fixed realisations 1, 50 and 100 on the same masked section and colour scale. The black surface line is derived from the archived DEM field; black points are projected composites within the plus or minus 75 m slab. Panels (b)-(f) use 4x vertical exaggeration. The common mask allows section-scale comparison of persistent support and conditional grade spread."""
+    fig7 = f"""**Figure 7.** Support-aligned ensemble and directional behaviour. (a) Median and range of mean TGC for five conditioned 20-realisation subsets and five independent null families on the full grid and inside the identical fractional lode envelope; the dashed line is the declustered graphitic-composite mean. (b) Envelope probability MAE, spread correlation and hotspot Jaccard versus realisation count. (c) Matched-space input variograms and simulation P05-P95 envelopes at lags with at least 100 input and mean simulation pairs; pair-limited lags remain in Online Resource 2. (d) Graphitic-composite swaths and envelope P50 with P10-P90 bands along strike, down dip and thickness normal; aligned bars give composite support. Full-ensemble swath correlations are {corr}."""
     text, count = re.subn(r"(?ms)\*\*Figure 5\.\*\*.*?(?=\n\n\*\*Figure 6\.\*\*)", fig5, text, count=1)
     if count != 1:
         raise ValueError("could not replace Figure 5 caption")
