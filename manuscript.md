@@ -67,13 +67,15 @@ Each prior maps to a numerical control described in Methods. Two-metre compositi
 
 ## 3. Data and Methods
 
-### 3.1 Drillhole Database and Workflow Quality Assurance and Quality Control (QA/QC)
+### 3.1 Drillhole Database and Analytical and Workflow Quality Assurance and Quality Control (QA/QC)
 
-The study uses 100 drillholes, 3,350 assay intervals and 1,248 lithology records. Table 1 follows the data from raw assays and lithology logs through desurveying, compositing, domain assignment and the audit-level Online Resource 2 workbook. The quantitative analyses are based on the curated project database and reproducible workflow outputs. Before modelling, the workflow checks interval validity, assay/lithology support, survey availability and the 100-hole study policy; four holes with incomplete assay/lithology support are excluded from study metrics. The QA/QC statement in this manuscript therefore refers to the reproducible workflow's data-integrity checks and audit trail, not to an independent validation of the SGS ensemble.
+The study uses 100 drillholes, 3,350 assay intervals and 1,248 lithology records. Table 1 follows the data from raw assays and lithology logs through desurveying, compositing, domain assignment and Online Resource 2. Before modelling, workflow checks covered interval validity, assay/lithology support, survey availability and the 100-hole study policy; four surveyed holes with incomplete assay/lithology support were excluded from study metrics.
+
+For the 2024-2025 drilling campaign represented by the curated database, project analytical QA/QC records document preparation at SGS Mwanza by drying, crushing to less than 2 mm, splitting and pulverising to 85% passing 75 micrometres, followed by infrared-combustion TGC analysis. Control insertion comprised 93 certified reference materials, 94 blanks, 93 coarse duplicates and 93 pulp duplicates (373 controls; 11.1% of submissions). Batch review reported blanks below 0.05% TGC, no CRM action-limit failures and duplicate correlation above 0.98 at the stated precision criterion. These records establish the analytical suitability of the assay population used here; the reproducible workflow separately audits data transfer and modelling calculations.
 
 ### 3.2 Compositing and Support
 
-Assay intervals were desurveyed and composited to 2 m support using length weighting:
+Assay intervals were desurveyed and composited to nominal 2 m bins within successive lithological groups. Composite TGC was calculated by length weighting the assay overlap:
 
 Equation (1):
 
@@ -81,11 +83,9 @@ Equation (1):
 Z_{\mathrm{comp}} = \frac{\sum_i L_i Z_i}{\sum_i L_i}
 ```
 
-where composite TGC is calculated from the length and TGC of each contributing assay interval. The 2 m length regularises variable assay intervals while retaining the vertical scale of logged graphitic and weathering contacts. A minimum retained length of 0.5 m prevents short edge intervals from being forced into artificial 2 m composites.
+where each contributing assay is weighted by its sampled overlap. A minimum retained nominal bin length of 0.5 m was used at group edges. Raw-interval reconciliation found 88 partly assay-covered composites (2.13% of 4,129). Internal unsampled portions total 79.42 m, or 0.998% of the 7957.70 m nominal span; 32 bins are less than half assay-covered. Excluding all partly covered bins from the descriptive length-weighted mean changes it from 4.146% to 4.156% TGC. The completed SGS retains the archived composite set, so this audit constrains global support sensitivity but does not quantify local simulation influence.
 
-Simulation used 25 m x 25 m x 2 m cells. The lateral dimensions retain plan-view graphitic-body morphology without treating individual assays as mappable panels between drill sections, while the 2 m vertical dimension matches composite support and preserves contact/weathering resolution. This support represents the geological scale tested; local predictive behaviour is evaluated separately by the validation diagnostics.
-
-Results were aggregated to 50 m x 50 m x 2 m reporting support. The two-by-two lateral aggregation is tied to the closest local drill spacing and stabilises map-scale probability and spread diagnostics while retaining the 2 m vertical dimension. It is an averaging support for comparison and visualisation, not evidence that every 50 m block is independently predicted.
+Simulation used 25 m x 25 m x 2 m cells. The lateral dimensions retain plan-view graphitic-body morphology, while the 2 m vertical dimension follows the nominal composite and logged-contact scale. Results were aggregated to 50 m x 50 m x 2 m reporting support. The two-by-two lateral aggregation is tied to local drill spacing and stabilises map-scale probability and spread diagnostics while retaining vertical resolution.
 
 No top-cut was applied because the graphitic 2 m population does not contain a detached high-grade tail. It has n = 3,948, mean 4.27% TGC, median 3.96% TGC, maximum 14.67% TGC and COV 0.53. A 99.5th-percentile cap at 11.99% TGC would affect 19 composites (0.48%) and change the mean and variance by only -0.13% and -1.88%, respectively.
 
@@ -165,9 +165,11 @@ Results are reported in the same evidence order: Figure 3 shows drillhole geomet
 
 The processed dataset contains 3,350 assay records over 7902.37 m and 4,129 2 m composites. The length-weighted composite mean is 4.15% TGC, the declustered composite mean is 3.79% TGC, and graphitic-only composites average 4.28% TGC. Table 2 separates domain-grade evidence from later SGS outputs. Fresh graphitic composites average 4.21% TGC and weathered graphitic composites average 4.80% TGC; that contrast is tested in Section 4.5.
 
+Raw-interval reconciliation identifies 88 partly assay-covered composites containing 79.42 m of internal unsampled span (0.998% of nominal composite metres). Removing these bins from the descriptive length-weighted mean changes TGC by 0.009 percentage points.
+
 ### 4.2 Structural and Variogram Evidence
 
-Directional continuity is anisotropic. The experimental range proxies are 1187.5 m along strike, 90.7 m down dip and 21.9 m normal to plane; only the along-strike proxy exceeds the 500 m experimental-variogram window. Figure 2 reports the observed corridor, the three directional axes and the search radii applied by SGS, and Table 3 lists the corresponding variogram and search settings.
+Directional continuity is anisotropic, but the empirical resolution differs among axes. The along-strike fit reaches 1187.5 m, beyond the 500 m experimental window, and is therefore reported as greater than 500 m and not sill-constrained. Down-dip and thickness-normal provisional range proxies are 90.7 m and 21.9 m, respectively. Figure 2 reports the observed corridor, geological axes and the regularised 250/200/20 m search model used by SGS; Table 3 lists the corresponding settings.
 
 ### 4.3 Reporting Support, Ensemble Behaviour and Matched Null Comparison
 
@@ -203,7 +205,7 @@ Five-fold hole-grouped categorical validation gives macro-F1 0.356, balanced acc
 
 ### 5.1 Geological Support and Reporting-Envelope Effects
 
-The central geological result is the separation of computational support from graphitic support. The full grid mixes the interpreted lode corridor with a large background volume, whereas the fractional envelope asks how the completed ensemble behaves where graphitic support has already been interpreted. The shift from 2.056% to 3.829% TGC therefore resolves the apparent mean deficit without altering a single simulated value.
+The central geological result is the separation of computational support from graphitic support. The full grid mixes the interpreted lode corridor with a large background volume, whereas the fractional envelope asks how the completed ensemble behaves where graphitic support has already been interpreted. The shift from 2.056% to 3.829% TGC therefore demonstrates why full-grid and lode-support means answer different volume questions; the similarity to graphitic-composite grade is a support decomposition, not independent validation.
 
 This distinction follows the broader geostatistical principle that uncertainty is inseparable from domain definition and support. Simulation carries uncertainty through alternative spatial outcomes, while geological domains determine which outcomes are compared and reported [4, 5]. Paithankar and Chatterjee [6] similarly show in an African mineral-deposit setting that ensemble behaviour must be read together with spatial support rather than from global reproduction alone. For the present graphite system, the envelope makes that support choice explicit and auditable.
 
@@ -217,11 +219,11 @@ The transferable value is the separation of geometry and grade uncertainty. In l
 
 Applying both model families to the identical envelope shows that the null's closer distribution fit is not produced only by background volume: its median envelope histogram overlap remains 0.925 versus 0.876. At the same time, the conditioned subsets show higher above-threshold persistence and a 36.9% narrower median spread, with slightly stronger strike correlation; the null has stronger median down-dip and thickness-normal correlations. Repetition across all five seeds establishes the robustness of this global-fit behaviour. The comparison therefore supports two explicit evaluation axes: distribution reproduction and the geological organisation of conditional uncertainty [4, 21].
 
-### 5.4 Categorical Sensitivity and Geological Information
+### 5.4 Contact, Weathering and Categorical Information
 
-Hole-grouped validation shows that the local categorical scorer retains modest graphitic-host ranking, while fresh and weathered graphite remain poorly separated. Raw categorical probabilities and entropy are consequently most useful for relative within-support patterns. The archive envelope carries the main support argument because it is a separate block representation with explicit geometric weights, whereas categorical frequencies show how the archived SGS implementation partitions local classes.
+Figure 4 establishes a marked grade contrast across logged graphitic-host transitions, which supports treating contact position as an explicit uncertainty axis. The modest fresh-weathered mean contrast is not reproduced consistently by paired-hole or three-class validation, so weathering is retained as a secondary grouping variable rather than the main geological control. This evidence connects directly to Figures 5 and 6: high spread concentrated farther from drilling and along envelope edges identifies where contact position and package continuation require geological verification.
 
-This hierarchy is consistent with joint domain-grade simulation practice, where categorical architecture must be evaluated independently of grade reproduction [5, 22, 23, 24]. Boundary-aware studies likewise show that contact behaviour should be diagnosed rather than assumed [25, 26]. Plurigaussian simulation provides a more spatially coherent alternative for future categorical-domain modelling than independent local draws [27]. The present conditioning contributes an explicit route from logged classes and structural axes to support-aligned probability, spread and directional diagnostics, even when a geology-blind configuration produces a closer marginal distribution.
+Hole-grouped validation shows that the local categorical scorer retains modest graphitic-host ranking, while fresh and weathered graphite remain poorly separated. Raw categorical probabilities and entropy are consequently most useful for relative within-support patterns. This hierarchy is consistent with joint domain-grade simulation practice, where categorical architecture must be evaluated independently of grade reproduction [5, 22, 23, 24]. Boundary-aware studies likewise show that contact behaviour should be diagnosed rather than assumed [25, 26]. Plurigaussian simulation provides a more spatially coherent alternative for future categorical-domain modelling than independent local draws [27].
 
 ### 5.5 Implications for Graphite Exploration and Resource Evaluation
 
@@ -231,7 +233,7 @@ Used together, the products establish an efficient follow-up sequence: review ed
 
 ### 5.6 Limitations and Future Validation
 
-The evidence is dominated by L01, which supplies 92.99% of retained archive blocks, so transfer among the six retained lode identifiers remains to be tested. The envelope shares drillhole, lithology and threshold information with the SGS and uses simplified vertical-run geometry; categorical classes are sampled by independent local draws; the null families change several controls together; and withheld grade baselines are not blocked reruns of the final SGS. Future validation should therefore add desurveyed section interpretations, a calibrated plurigaussian or rapid-updating domain model [27, 30], locally varying structure and independent drilling or fully blocked SGS calibration.
+The evidence is dominated by L01, which supplies 92.99% of retained archive blocks, so transfer among the six retained lode identifiers remains to be tested. The envelope shares drillhole, lithology and threshold information with the SGS and uses simplified vertical-run geometry; the archived SGS retains 88 partly assay-covered composites representing 0.998% of nominal composite metres; categorical classes are sampled by independent local draws; the null families change several controls together; and withheld grade baselines are not blocked reruns of the final SGS. Future validation should therefore test corrected composite support, desurveyed section interpretations, a calibrated plurigaussian or rapid-updating domain model [27, 30], locally varying structure and independent drilling or fully blocked SGS calibration.
 
 ## 6. Conclusions
 
@@ -245,9 +247,9 @@ The evidence is dominated by L01, which supplies 92.99% of retained archive bloc
 
 ## 7. Statements and Declarations
 
-### 7.1 Data Availability
+### 7.1 Data Availability Statement
 
-The collar, survey, lithology, assay, and QA/QC database belongs to the project data holder and is subject to confidentiality restrictions. Online Resource 1 (Supplementary Methods and Validation) documents the extended workflow and validation scope. Online Resource 2 (Audit-Level Metadata and Validation Workbook) provides machine-readable run configuration, variogram, validation, convergence, support-decomposition, contact, occupancy, and null-sensitivity summaries. These resources support audit of the reported calculations but cannot regenerate the proprietary project arrays. The full database may be made available to editors or reviewers for confidential examination, subject to data-owner approval.
+The collar, survey, lithology, assay, and QA/QC database used in this study belongs to the project data holder and is subject to confidentiality restrictions; it is not publicly available. The data that support the findings of this study are available from the corresponding author upon reasonable request, subject to data-owner approval. Online Resource 1 (Supplementary Methods and Validation) documents the extended workflow and validation scope. Online Resource 2 (Audit-Level Metadata and Validation Workbook) provides machine-readable run configuration, variogram, validation, convergence, support-decomposition, contact, occupancy, and null-sensitivity summaries. These supplementary resources support audit of the reported calculations but cannot regenerate the proprietary project arrays. The confidential project database may be made available to editors or reviewers for confidential examination, subject to data-owner approval.
 
 ### 7.2 Funding
 

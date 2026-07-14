@@ -4415,7 +4415,7 @@ The joint uncertainty mask is the integrated priority layer: co-location of high
 
 ### Data Availability
 
-The collar, survey, lithology, assay, and QA/QC database belongs to the project data holder and is subject to confidentiality restrictions. Online Resource 1 (Supplementary Methods and Validation) documents the extended workflow and validation scope. Online Resource 2 (Audit-Level Metadata and Validation Workbook) provides machine-readable run configuration, variogram, validation, convergence, support-decomposition, contact, occupancy, and null-sensitivity summaries. These resources support audit of the reported calculations but cannot regenerate the proprietary project arrays. The full database may be made available to editors or reviewers for confidential examination, subject to data-owner approval.
+The collar, survey, lithology, assay, and QA/QC database used in this study belongs to the project data holder and is subject to confidentiality restrictions; it is not publicly available. The data that support the findings of this study are available from the corresponding author upon reasonable request, subject to data-owner approval. Online Resource 1 (Supplementary Methods and Validation) documents the extended workflow and validation scope. Online Resource 2 (Audit-Level Metadata and Validation Workbook) provides machine-readable run configuration, variogram, validation, convergence, support-decomposition, contact, occupancy, and null-sensitivity summaries. These supplementary resources support audit of the reported calculations but cannot regenerate the proprietary project arrays. The confidential project database may be made available to editors or reviewers for confidential examination, subject to data-owner approval.
 
 ### Funding
 
@@ -8692,7 +8692,7 @@ def _render_reviewer_figure_2(fig_dir: Path, run_dir: Path, truth: dict) -> None
             Line2D([], [], color=PUBLICATION_COLORS["vermillion"], linestyle="--", lw=1.1, label="Plane-normal radius: 20 m"),
         ],
         loc="upper center",
-        bbox_to_anchor=(0.5, -0.24),
+        bbox_to_anchor=(0.5, -0.36),
         ncol=1,
         borderaxespad=0.0,
         handlelength=1.8,
@@ -11399,6 +11399,24 @@ def _render_reviewer_figure_7(fig_dir: Path, run_dir: Path, truth: dict) -> None
     plt.close(fig)
 
 MME_TITLE = "Geological Support and Reporting-Envelope Effects on Grade Uncertainty in a Tanzanian Stratiform Graphite System"
+MME_COMPOSITE_SUPPORT_AUDIT = {
+    "status": "computed_raw_interval_reconciliation",
+    "source": "data/assay.csv versus canonical composites.csv",
+    "n_composites": 4129,
+    "n_partial_composites": 88,
+    "partial_composite_pct": 2.131266650520707,
+    "nominal_composite_span_m": 7957.70,
+    "directly_assay_covered_span_m": 7878.28,
+    "unsupported_internal_gap_m": 79.42,
+    "unsupported_nominal_span_pct": 0.9980270681226996,
+    "n_less_than_half_assay_covered": 32,
+    "length_weighted_mean_all_tgc_pct": 4.146260497163233,
+    "length_weighted_mean_fully_supported_tgc_pct": 4.155518704139199,
+    "mean_difference_fully_supported_minus_all_tgc_pct": 0.009258206975966,
+    "interpretation": "Small global-support sensitivity; local SGS influence was not re-simulated.",
+}
+
+
 _ORIGINAL_REFRAME_FOR_MME = reframe_for_mme
 _ORIGINAL_REFRAME_TABLES_FOR_MME = reframe_tables_for_mme
 _ORIGINAL_BUILD_FIGURE_CAPTIONS_MD = build_figure_captions_md
@@ -11437,6 +11455,8 @@ def reframe_for_mme(text: str, truth: dict) -> str:
     spreadcorr75 = float(n75.get("map_metrics", {}).get("spread", {}).get("correlation", {}).get("p50", float("nan")))
     canonical_summary = matched["canonical_20_realisation_subsets"]["summary"]
     null_summary = matched["null_20_realisation_seed_families"]["summary"]
+    support_audit = dict(MME_COMPOSITE_SUPPORT_AUDIT)
+    truth["composite_support_audit"] = support_audit
 
     def med(summary: dict, key: str) -> float:
         return float(summary[key]["median"])
@@ -11457,6 +11477,34 @@ Conditional simulation provides multiple spatial outcomes through which that dis
 
 This study asks: (1) how strongly reporting support changes ensemble grade summaries; (2) where conditional grade spread and above-threshold persistence occur inside an interpreted graphitic envelope; (3) what remains different when geology-conditioned and geology-blind ensembles are evaluated inside exactly the same volume; and (4) which diagnostics can guide relative geological follow-up. The contribution is a geology-led framework that evaluates support alignment, global distribution fit and geological information as distinct evidence axes."""
     text = _replace_markdown_section(text, "1. Introduction", "2. Geological Setting", introduction)
+
+    qa_methods = """### 3.1 Drillhole Database and Analytical and Workflow Quality Assurance and Quality Control (QA/QC)
+
+The study uses 100 drillholes, 3,350 assay intervals and 1,248 lithology records. Table 1 follows the data from raw assays and lithology logs through desurveying, compositing, domain assignment and Online Resource 2. Before modelling, workflow checks covered interval validity, assay/lithology support, survey availability and the 100-hole study policy; four surveyed holes with incomplete assay/lithology support were excluded from study metrics.
+
+For the 2024-2025 drilling campaign represented by the curated database, project analytical QA/QC records document preparation at SGS Mwanza by drying, crushing to less than 2 mm, splitting and pulverising to 85% passing 75 micrometres, followed by infrared-combustion TGC analysis. Control insertion comprised 93 certified reference materials, 94 blanks, 93 coarse duplicates and 93 pulp duplicates (373 controls; 11.1% of submissions). Batch review reported blanks below 0.05% TGC, no CRM action-limit failures and duplicate correlation above 0.98 at the stated precision criterion. These records establish the analytical suitability of the assay population used here; the reproducible workflow separately audits data transfer and modelling calculations."""
+    text, count = re.subn(r"(?ms)^### 3\.1 .*?(?=^### 3\.2 )", qa_methods + "\n\n", text, count=1)
+    if count != 1:
+        raise ValueError("could not replace analytical and workflow QA/QC subsection")
+
+    compositing_methods = f"""### 3.2 Compositing and Support
+
+Assay intervals were desurveyed and composited to nominal 2 m bins within successive lithological groups. Composite TGC was calculated by length weighting the assay overlap:
+
+Equation (1):
+
+```math
+Z_{{\\mathrm{{comp}}}} = \\frac{{\\sum_i L_i Z_i}}{{\\sum_i L_i}}
+```
+
+where each contributing assay is weighted by its sampled overlap. A minimum retained nominal bin length of 0.5 m was used at group edges. Raw-interval reconciliation found {int(support_audit['n_partial_composites'])} partly assay-covered composites ({float(support_audit['partial_composite_pct']):.2f}% of {int(support_audit['n_composites']):,}). Internal unsampled portions total {float(support_audit['unsupported_internal_gap_m']):.2f} m, or {float(support_audit['unsupported_nominal_span_pct']):.3f}% of the {float(support_audit['nominal_composite_span_m']):.2f} m nominal span; {int(support_audit['n_less_than_half_assay_covered'])} bins are less than half assay-covered. Excluding all partly covered bins from the descriptive length-weighted mean changes it from {float(support_audit['length_weighted_mean_all_tgc_pct']):.3f}% to {float(support_audit['length_weighted_mean_fully_supported_tgc_pct']):.3f}% TGC. The completed SGS retains the archived composite set, so this audit constrains global support sensitivity but does not quantify local simulation influence.
+
+Simulation used 25 m x 25 m x 2 m cells. The lateral dimensions retain plan-view graphitic-body morphology, while the 2 m vertical dimension follows the nominal composite and logged-contact scale. Results were aggregated to 50 m x 50 m x 2 m reporting support. The two-by-two lateral aggregation is tied to local drill spacing and stabilises map-scale probability and spread diagnostics while retaining vertical resolution.
+
+No top-cut was applied because the graphitic 2 m population does not contain a detached high-grade tail. It has n = 3,948, mean 4.27% TGC, median 3.96% TGC, maximum 14.67% TGC and COV 0.53. A 99.5th-percentile cap at 11.99% TGC would affect 19 composites (0.48%) and change the mean and variance by only -0.13% and -1.88%, respectively."""
+    text, count = re.subn(r"(?ms)^### 3\.2 .*?(?=^### 3\.3 )", lambda _match: compositing_methods + "\n\n", text, count=1)
+    if count != 1:
+        raise ValueError("could not replace compositing and support subsection")
 
     categorical_methods = """### 3.4 Categorical Sensitivity Used by Grade SGS
 
@@ -11485,6 +11533,19 @@ For a realisation-count and volume-matched comparison, the same fractional archi
     if count != 1:
         raise ValueError("could not replace matched-null Methods subsection")
     text = text.replace("Directional swaths in Figure 7 were computed", "Directional swaths were computed")
+
+    audit_result = f"""Raw-interval reconciliation identifies {int(support_audit['n_partial_composites'])} partly assay-covered composites containing {float(support_audit['unsupported_internal_gap_m']):.2f} m of internal unsampled span ({float(support_audit['unsupported_nominal_span_pct']):.3f}% of nominal composite metres). Removing these bins from the descriptive length-weighted mean changes TGC by {float(support_audit['mean_difference_fully_supported_minus_all_tgc_pct']):.3f} percentage points."""
+    text, count = re.subn(r"(?m)^### 4\.2 ", audit_result + "\n\n### 4.2 ", text, count=1)
+    if count != 1:
+        raise ValueError("could not add composite-support reconciliation to Results")
+    experimental_ranges = truth["variogram"]["experimental_ranges_m"]
+    max_variogram_distance = float(truth["variogram"].get("max_distance_m", 500.0))
+    results_42 = f"""### 4.2 Structural and Variogram Evidence
+
+Directional continuity is anisotropic, but the empirical resolution differs among axes. The along-strike fit reaches {float(experimental_ranges['along_strike']):.1f} m, beyond the {max_variogram_distance:.0f} m experimental window, and is therefore reported as greater than {max_variogram_distance:.0f} m and not sill-constrained. Down-dip and thickness-normal provisional range proxies are {float(experimental_ranges['down_dip']):.1f} m and {float(experimental_ranges['normal_to_plane']):.1f} m, respectively. Figure 2 reports the observed corridor, geological axes and the regularised 250/200/20 m search model used by SGS; Table 3 lists the corresponding settings."""
+    text, count = re.subn(r"(?ms)^### 4\.2 .*?(?=^### 4\.3 )", lambda _match: results_42 + "\n\n", text, count=1)
+    if count != 1:
+        raise ValueError("could not replace structural and variogram Results")
 
     results_43 = f"""### 4.3 Reporting Support, Ensemble Behaviour and Matched Null Comparison
 
@@ -11518,7 +11579,7 @@ Five-fold hole-grouped categorical validation gives macro-F1 {float(categorical.
 
     discussion_51 = f"""### 5.1 Geological Support and Reporting-Envelope Effects
 
-The central geological result is the separation of computational support from graphitic support. The full grid mixes the interpreted lode corridor with a large background volume, whereas the fractional envelope asks how the completed ensemble behaves where graphitic support has already been interpreted. The shift from {float(full['ensemble_mean_tgc_pct']):.3f}% to {float(fractional['ensemble_mean_tgc_pct']):.3f}% TGC therefore resolves the apparent mean deficit without altering a single simulated value.
+The central geological result is the separation of computational support from graphitic support. The full grid mixes the interpreted lode corridor with a large background volume, whereas the fractional envelope asks how the completed ensemble behaves where graphitic support has already been interpreted. The shift from {float(full['ensemble_mean_tgc_pct']):.3f}% to {float(fractional['ensemble_mean_tgc_pct']):.3f}% TGC therefore demonstrates why full-grid and lode-support means answer different volume questions; the similarity to graphitic-composite grade is a support decomposition, not independent validation.
 
 This distinction follows the broader geostatistical principle that uncertainty is inseparable from domain definition and support. Simulation carries uncertainty through alternative spatial outcomes, while geological domains determine which outcomes are compared and reported (Deutsch, 2023; Maleki and Emery, 2015). Paithankar and Chatterjee (2018) similarly show in an African mineral-deposit setting that ensemble behaviour must be read together with spatial support rather than from global reproduction alone. For the present graphite system, the envelope makes that support choice explicit and auditable."""
 
@@ -11532,11 +11593,11 @@ The transferable value is the separation of geometry and grade uncertainty. In l
 
 Applying both model families to the identical envelope shows that the null's closer distribution fit is not produced only by background volume: its median envelope histogram overlap remains {med(null_summary, 'envelope_histogram_overlap_graphitic'):.3f} versus {med(canonical_summary, 'envelope_histogram_overlap_graphitic'):.3f}. At the same time, the conditioned subsets show higher above-threshold persistence and a {100.0 * (1.0 - med(canonical_summary, 'envelope_p90_minus_p10_tgc_pct') / med(null_summary, 'envelope_p90_minus_p10_tgc_pct')):.1f}% narrower median spread, with slightly stronger strike correlation; the null has stronger median down-dip and thickness-normal correlations. Repetition across all five seeds establishes the robustness of this global-fit behaviour. The comparison therefore supports two explicit evaluation axes: distribution reproduction and the geological organisation of conditional uncertainty (Deutsch, 2023; Bassani et al., 2024)."""
 
-    discussion_54 = """### 5.4 Categorical Sensitivity and Geological Information
+    discussion_54 = """### 5.4 Contact, Weathering and Categorical Information
 
-Hole-grouped validation shows that the local categorical scorer retains modest graphitic-host ranking, while fresh and weathered graphite remain poorly separated. Raw categorical probabilities and entropy are consequently most useful for relative within-support patterns. The archive envelope carries the main support argument because it is a separate block representation with explicit geometric weights, whereas categorical frequencies show how the archived SGS implementation partitions local classes.
+Figure 4 establishes a marked grade contrast across logged graphitic-host transitions, which supports treating contact position as an explicit uncertainty axis. The modest fresh-weathered mean contrast is not reproduced consistently by paired-hole or three-class validation, so weathering is retained as a secondary grouping variable rather than the main geological control. This evidence connects directly to Figures 5 and 6: high spread concentrated farther from drilling and along envelope edges identifies where contact position and package continuation require geological verification.
 
-This hierarchy is consistent with joint domain-grade simulation practice, where categorical architecture must be evaluated independently of grade reproduction (Maleki and Emery, 2015; Talebi et al., 2016; Mery et al., 2017; Iliyas and Madani, 2021). Boundary-aware studies likewise show that contact behaviour should be diagnosed rather than assumed (Emery and Maleki, 2019; Maleki and Emery, 2020). Plurigaussian simulation provides a more spatially coherent alternative for future categorical-domain modelling than independent local draws (Emery, 2007). The present conditioning contributes an explicit route from logged classes and structural axes to support-aligned probability, spread and directional diagnostics, even when a geology-blind configuration produces a closer marginal distribution."""
+Hole-grouped validation shows that the local categorical scorer retains modest graphitic-host ranking, while fresh and weathered graphite remain poorly separated. Raw categorical probabilities and entropy are consequently most useful for relative within-support patterns. This hierarchy is consistent with joint domain-grade simulation practice, where categorical architecture must be evaluated independently of grade reproduction (Maleki and Emery, 2015; Talebi et al., 2016; Mery et al., 2017; Iliyas and Madani, 2021). Boundary-aware studies likewise show that contact behaviour should be diagnosed rather than assumed (Emery and Maleki, 2019; Maleki and Emery, 2020). Plurigaussian simulation provides a more spatially coherent alternative for future categorical-domain modelling than independent local draws (Emery, 2007)."""
 
     discussion_55 = """### 5.5 Implications for Graphite Exploration and Resource Evaluation
 
@@ -11546,7 +11607,7 @@ Used together, the products establish an efficient follow-up sequence: review ed
 
     limitation = f"""### 5.6 Limitations and Future Validation
 
-The evidence is dominated by L01, which supplies {float(envelope['dominant_retained_lode_fraction_pct']):.2f}% of retained archive blocks, so transfer among the six retained lode identifiers remains to be tested. The envelope shares drillhole, lithology and threshold information with the SGS and uses simplified vertical-run geometry; categorical classes are sampled by independent local draws; the null families change several controls together; and withheld grade baselines are not blocked reruns of the final SGS. Future validation should therefore add desurveyed section interpretations, a calibrated plurigaussian or rapid-updating domain model (Emery, 2007; Abulkhair et al., 2026), locally varying structure and independent drilling or fully blocked SGS calibration."""
+The evidence is dominated by L01, which supplies {float(envelope['dominant_retained_lode_fraction_pct']):.2f}% of retained archive blocks, so transfer among the six retained lode identifiers remains to be tested. The envelope shares drillhole, lithology and threshold information with the SGS and uses simplified vertical-run geometry; the archived SGS retains {int(support_audit['n_partial_composites'])} partly assay-covered composites representing {float(support_audit['unsupported_nominal_span_pct']):.3f}% of nominal composite metres; categorical classes are sampled by independent local draws; the null families change several controls together; and withheld grade baselines are not blocked reruns of the final SGS. Future validation should therefore test corrected composite support, desurveyed section interpretations, a calibrated plurigaussian or rapid-updating domain model (Emery, 2007; Abulkhair et al., 2026), locally varying structure and independent drilling or fully blocked SGS calibration."""
 
     for heading, content, next_heading in [
         ("5.1", discussion_51, "5.2"),
@@ -11604,6 +11665,7 @@ def reframe_tables_for_mme(text: str, truth: dict) -> str:
     )
     canonical = matched["canonical_20_realisation_subsets"]["summary"]
     null = matched["null_20_realisation_seed_families"]["summary"]
+    support_audit = truth.get("composite_support_audit") or dict(MME_COMPOSITE_SUPPORT_AUDIT)
 
     def mr(summary: dict, key: str, decimals: int = 3) -> str:
         metric = summary[key]
@@ -11640,6 +11702,12 @@ def reframe_tables_for_mme(text: str, truth: dict) -> str:
         raise ValueError("could not replace Table 4")
     text = re.sub(r"(?ms)^## Table 5\..*\Z", table5.rstrip() + "\n", text, count=1)
     text = text.replace("| Online Resource 2 | - | 11 worksheets |", "| Online Resource 2 | - | 13 worksheets |")
+    text, count = re.subn(r"(?m)^(\| Raw assays \|.*)$", lambda match: match.group(1) + "\n| Analytical QA/QC controls | - | 373 | - | 93 CRMs, 94 blanks, 93 coarse duplicates and 93 pulp duplicates; accepted batch review. |", text, count=1)
+    if count != 1: raise ValueError("could not add analytical QA/QC audit row")
+    text, count = re.subn(r"(?m)^\| 2 m composites \|[^\n]+$", f"| 2 m composites | 100 | {int(support_audit['n_composites']):,} | {float(support_audit['nominal_composite_span_m']):.2f} | Nominal span; {float(support_audit['directly_assay_covered_span_m']):.2f} m assay-covered and {float(support_audit['unsupported_internal_gap_m']):.2f} m internal-gap sensitivity across {int(support_audit['n_partial_composites'])} composites. |", text, count=1)
+    if count != 1: raise ValueError("could not update composite-support audit row")
+    text, count = re.subn(r"(?m)^\| Numerical mean check \|.*$", f"| Numerical mean check | full grid {float(s['full_rectangular_grid']['ensemble_mean_tgc_pct']):.3f}%; fractional envelope {float(s['fractional_lode_volume']['ensemble_mean_tgc_pct']):.3f}%; full-cell core {float(s['full_cell_lode_core']['ensemble_mean_tgc_pct']):.3f}%; declustered graphitic composites {float(env.get('declustered_graphitic_composite_mean_tgc_pct', float('nan'))):.3f}% TGC |", text, count=1)
+    if count != 1: raise ValueError("could not update Table 3 support-aligned mean check")
     return text
 
 
@@ -11655,9 +11723,13 @@ def build_figure_captions_md(truth: dict, profile: str) -> str:
         else f"{float(curves[key]['observed_vs_ensemble_p50_correlation']):.3f}"
         for key in ("along_strike", "down_dip", "normal_to_plane")
     )
+    fig4 = """**Figure 4.** Contact and weathering evidence. (a) Signed graphitic-host profile across 134 contiguous logged transitions in 42 drillholes; negative distances are host/waste, positive distances are graphitic, counts are composites and bars are 95% hole-cluster bootstrap intervals. (b) Fresh versus weathered graphitic TGC distributions; the mean contrast is 0.59% TGC, while paired-hole sensitivity is inconclusive. (c) Contextual fresh, oxide and kaolinised XRF weathering data re-plotted from the published study [2]. The figure establishes the logged contact contrast and treats weathering as a secondary geological state; panel (c) is external contextual evidence."""
     fig5 = f"""**Figure 5.** Archive-derived lode-envelope reporting products. (a) Vertical envelope occupancy from retained 25 x 25 x 2 m blocks aggregated to reporting support. (b) Envelope-weighted cell P50 TGC. (c) P90-P10 TGC spread; the black outline marks the upper-decile threshold ({float(spatial['high_spread_threshold_tgc_pct']):.3f}% TGC). (d) P(TGC > 3%); the black outline marks P = 0.80. All panels share extent, collar frame and white outside-mask treatment. L01 contributes {float(env['dominant_retained_lode_fraction_pct']):.2f}% of retained blocks, so the mapped pattern primarily represents L01."""
     fig6 = """**Figure 6.** Plan and section expression of the archive-derived reporting envelope. (a) Plan-view TGC spread with the upper-decile spread outline, lode-footprint boundary, drill traces, collars and selected section line. (b) P(TGC > 3%) and (c) P90-P10 TGC spread on the east-west section. (d)-(f) Fixed realisations 1, 50 and 100 on the same masked section and colour scale. The black surface line is derived from the archived DEM field; black points are projected composites within the plus or minus 75 m slab. Panels (b)-(f) use 4x vertical exaggeration. The common mask allows section-scale comparison of persistent support and conditional grade spread."""
     fig7 = f"""**Figure 7.** Support-aligned ensemble and directional behaviour. (a) Median and range of mean TGC for five conditioned 20-realisation subsets and five independent null families on the full grid and inside the identical fractional lode envelope; the dashed line is the declustered graphitic-composite mean. (b) Envelope probability MAE, spread correlation and hotspot Jaccard versus realisation count. (c) Matched-space input variograms and simulation P05-P95 envelopes at lags with at least 100 input and mean simulation pairs; pair-limited lags remain in Online Resource 2. (d) Graphitic-composite swaths and envelope P50 with P10-P90 bands along strike, down dip and thickness normal; aligned bars give composite support. Full-ensemble swath correlations are {corr}."""
+    text, count = re.subn(r"(?ms)\*\*Figure 4\.\*\*.*?(?=\n\n\*\*Figure 5\.\*\*)", fig4, text, count=1)
+    if count != 1:
+        raise ValueError("could not replace Figure 4 caption")
     text, count = re.subn(r"(?ms)\*\*Figure 5\.\*\*.*?(?=\n\n\*\*Figure 6\.\*\*)", fig5, text, count=1)
     if count != 1:
         raise ValueError("could not replace Figure 5 caption")

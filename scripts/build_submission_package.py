@@ -4212,8 +4212,9 @@ def _write_mme_esm_pdf(dst: Path, null_summary: dict, null_rows: list[dict]) -> 
             "S5. Variogram, Contact and Spatial Diagnostics",
             [
                 f"Matched-space variogram reproduction used {int(vario.get('n_real_eval', 12))} normal-score realisations "
-                f"and gives weighted RMSE {float(vario.get('weighted_rmse', float('nan'))):.3f}. Strike and down-dip "
-                "directions retain nine pair-supported lags; thickness normal retains two.",
+                f"and gives weighted RMSE {float(vario.get('weighted_rmse', float('nan'))):.3f}. Strike continuity is "
+                "not sill-constrained within the 500 m experimental window; down-dip and thickness-normal fits are "
+                "provisional, and thickness normal retains two pair-supported lags.",
                 f"The signed contact profile contains {int(contact.get('n_composites', 711))} composites around "
                 f"{int(contact.get('contact_count', 134))} transitions in {int(contact.get('contact_holes', 42))} holes. "
                 f"Graphitic minus host-side mean TGC = "
@@ -4260,7 +4261,7 @@ def _write_mme_esm_pdf(dst: Path, null_summary: dict, null_rows: list[dict]) -> 
             ax.text(0, 1, heading, va="top", fontsize=15, weight="bold", color="#17324d")
             y = 0.91
             for paragraph in paragraphs:
-                lines = wrap(paragraph, 100)
+                lines = wrap(paragraph, 82)
                 ax.text(
                     0, y, "\n".join(lines), va="top", fontsize=10.5,
                     linespacing=1.5, color="#222222",
@@ -4367,7 +4368,17 @@ def _write_mme_esm_xlsx(dst: Path, staging_dir: Path, run_dir: Path, null_summar
                 item[f"mean_tgc_above_threshold_{quantile}_pct"] = row.get(f"mean_tgc_above_cutoff_{quantile}")
             converted.append(item)
         occupancy = converted
+    matched = validation.get("validation_gap_summaries", {}).get("archive_lode_matched_null_comparison", {}) or {}
+    matched_null = matched.get("null_20_realisation_seed_families", {}) or {}
+    matched_null_summary = matched_null.get("summary", {}) or {}
+    matched_null_rows = matched_null.get("rows", []) or []
+    matched_seed_columns = ["seed", "envelope_mean_tgc_pct", "envelope_probability_gt_3", "envelope_p90_minus_p10_tgc_pct", "envelope_histogram_overlap_graphitic", "envelope_qq_rmse_graphitic_tgc_pct", "envelope_swath_corr_strike", "envelope_swath_corr_down_dip", "envelope_swath_corr_thickness_normal"]
+    variogram_payload = json.loads(json.dumps(_first_json(staging_dir/"supplement"/"variogram_model.json", staging_dir/"variogram_model.json", run_dir/"figures"/"variogram_model.json", run_dir/"tables"/"variogram_model.json")))
+    fitted_ranges = variogram_payload.pop("direction_ranges", {}) or {}
+    variogram_payload["reported_directional_support"] = {"along_strike": ">500 m; not sill-constrained within the experimental window", "down_dip": "90.7 m provisional fit", "normal_to_plane": "21.9 m provisional fit; pair-limited"}
+    variogram_payload["fitted_extrapolated_ranges_m"] = fitted_ranges
     run_metadata = json.loads(json.dumps(_first_json(run_dir/"sgs_meta.json", staging_dir/"sgs_meta.json")))
+    run_metadata["composite_support_reconciliation"] = truth.get("composite_support_audit", {})
     if isinstance(run_metadata.get("config"), dict):
         run_metadata["config"].pop("publication", None)
     simulation = run_metadata.setdefault("config", {}).setdefault("simulation", {})
@@ -4391,7 +4402,7 @@ def _write_mme_esm_xlsx(dst: Path, staging_dir: Path, run_dir: Path, null_summar
       "README":[["Field","Value"],["Title",MME_TITLE],["Journal",MME_JOURNAL],["Collection",MME_COLLECTION],["Author",AUTHOR_NAME],["Affiliation",AUTHOR_AFFILIATION],["Email",AUTHOR_EMAIL],["ORCID",AUTHOR_ORCID_URL],["Scope","Audit-level evidence; archive-derived reporting-envelope sensitivity; proprietary drillhole and domain arrays excluded."],["Null campaign",null_summary.get("status","pending")]],
       "Run Metadata":[["Metric","Value"]]+_flatten(run_metadata),
       "Validation Metrics":[["Metric","Value"]]+_flatten(validation),
-      "Variogram Models":[["Metric","Value"]]+_flatten(_first_json(staging_dir/"supplement"/"variogram_model.json",staging_dir/"variogram_model.json",run_dir/"figures"/"variogram_model.json",run_dir/"tables"/"variogram_model.json")),
+      "Variogram Models":[["Metric","Value"]]+_flatten(variogram_payload),
       "Convergence":[["Metric","Value"]]+_flatten(validation.get("validation_gap_summaries",{}).get("archive_lode_envelope_convergence",{})),
       "Reporting Envelope":[["Metric","Value"]]+_flatten({
           "geometry": validation.get("validation_gap_summaries",{}).get("archive_lode_envelope",{}),
@@ -4402,8 +4413,8 @@ def _write_mme_esm_xlsx(dst: Path, staging_dir: Path, run_dir: Path, null_summar
       "Categorical Validation":[["Metric","Value"]]+_flatten(validation.get("validation_gap_summaries",{}).get("categorical_domain_grouped_validation",{})),
       "Contact Statistics":[["Metric","Value"]]+_flatten(validation.get("validation_gap_summaries",{}).get("signed_graphitic_host_contact",{})),
       "Occupancy Diagnostics":([list(occupancy[0])]+[[row.get(k) for k in occupancy[0]] for row in occupancy]) if occupancy else [["Status"],["No rows available"]],
-      "Repeated Null Summary":[["Metric","Value"]]+_flatten(null_summary),
-      "Repeated Null Seeds":([list(null_rows[0])]+[[row.get(k) for k in null_rows[0]] for row in null_rows]) if null_rows else [["Status"],["Pending seeds 9101, 9201, 9301, 9401, 9501"]]}
+      "Repeated Null Summary":[["Metric","Value"]]+_flatten({"support":"identical fractional archive-lode envelope","family":"five independent 20-realisation null seeds","summary":matched_null_summary}),
+      "Repeated Null Seeds":([matched_seed_columns]+[[row.get(key) for key in matched_seed_columns] for row in matched_null_rows]) if matched_null_rows else [["Status"],["Matched-envelope seed metrics unavailable"]]}
     work=BUILD_WORK_DIR/"mme_esm"; work.mkdir(parents=True,exist_ok=True); payload_path=work/"payload.json"; script_path=work/"build.mjs"
     payload_path.write_text(json.dumps(payload,ensure_ascii=True),encoding="utf-8")
     script_path.write_text(r'''import fs from "node:fs/promises";
@@ -4432,7 +4443,7 @@ def _style_mme_manuscript(path: Path) -> None:
         caption_style=doc.styles.add_style("Caption",WD_STYLE_TYPE.PARAGRAPH); names.add("Caption")
     caption_style=doc.styles["Caption"]; caption_style.font.name="Times New Roman"; caption_style.font.size=Pt(10); caption_style.font.italic=False
     for paragraph in doc.paragraphs:
-        if re.match(r"^(?:Fig\.|Figure)\s*\d+[A-Z]?\b",paragraph.text.strip(),flags=re.I):
+        if re.match(r"^Fig\.\s*\d+[A-Z]?\b",paragraph.text.strip(),flags=re.I):
             paragraph.style=caption_style; paragraph.paragraph_format.line_spacing=1.15; paragraph.paragraph_format.space_after=Pt(6)
     for table in doc.tables:
         for row_index,row in enumerate(table.rows):
@@ -4471,6 +4482,39 @@ def _embed_mme_figures(docx_path: Path, staging_dir: Path, run_dir: Path) -> Non
         caption = captions.get(int(idx))
         if caption is not None:
             caption._p.addprevious(paragraph._p)
+    doc.save(docx_path)
+
+
+def _pair_mme_figures_and_captions(docx_path: Path) -> None:
+    """Pair each embedded figure with its full caption in the final figure section."""
+    doc = Document(docx_path)
+    caption_nodes, label_nodes, image_nodes = {}, {}, {}
+    captions_heading = None
+    paragraphs = doc.paragraphs
+    for index, paragraph in enumerate(paragraphs):
+        value = paragraph.text.strip()
+        if value == "FIGURE CAPTIONS":
+            captions_heading = paragraph._p
+        caption_match = re.match(r"^Fig\.\s*(\d+)\s+", value)
+        if caption_match:
+            caption_nodes[int(caption_match.group(1))] = paragraph._p
+        label_match = re.fullmatch(r"Figure\s+(\d+)", value)
+        if label_match:
+            number = int(label_match.group(1))
+            label_nodes[number] = paragraph._p
+            for candidate in paragraphs[index + 1:index + 3]:
+                if candidate._p.xpath('.//w:drawing'):
+                    image_nodes[number] = candidate._p
+                    break
+    if set(caption_nodes) != set(range(1, 8)) or set(image_nodes) != set(range(1, 8)):
+        raise RuntimeError("Could not pair all seven MME figure images and captions")
+    for number in range(1, 8):
+        image_nodes[number].addnext(caption_nodes[number])
+        label = label_nodes.get(number)
+        if label is not None and label.getparent() is not None:
+            label.getparent().remove(label)
+    if captions_heading is not None and captions_heading.getparent() is not None:
+        captions_heading.getparent().remove(captions_heading)
     doc.save(docx_path)
 
 
@@ -4522,6 +4566,7 @@ def build_clean_submission_ready(staging_dir: Path, run_dir: Path) -> Path:
     if not manuscript.exists(): raise FileNotFoundError("Generated manuscript DOCX is missing")
     shutil.copy2(manuscript,clean_dir/"Manuscript.docx"); _style_mme_manuscript(clean_dir/"Manuscript.docx")
     _embed_mme_figures(clean_dir/"Manuscript.docx", staging_dir, run_dir)
+    _pair_mme_figures_and_captions(clean_dir/"Manuscript.docx")
     _optimise_mme_docx_media(clean_dir/"Manuscript.docx")
     strip_docx_review_markup(clean_dir/"Manuscript.docx")
     _write_mme_cover(clean_dir/"Cover_Letter.docx",null_summary)

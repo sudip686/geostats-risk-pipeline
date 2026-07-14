@@ -1,38 +1,36 @@
-# RUN_SUMMARY
+# Run Summary
 
 ## Current repo state
-- `repo/` now carries the same workflow modules used in local runs.
-- `python -m src.run_all` and `python -m src.run` both execute end-to-end from this folder.
-- Input data location is parameterized by `data_source` and `paths` in config.
+
+- The active journal package is `submission_ready/`.
+- The package is clean JAES-facing output, not an internal audit archive.
+- Root-level duplicate manuscript exports and control files are excluded.
+- `scripts/build_submission_package.py` mirrors the clean package into this repo after a successful parent-project build.
 
 ## Main commands
+
+Run these from the parent project folder:
+
 ```bash
-python -m src.run_all --config config/project.yaml --output outputs
-python -m src.run --config config/project.yaml --output outputs
+python scripts/autoresearch_eval.py
+python scripts/submission_preflight.py --sub-dir submission_ready
+python scripts/submission_preflight.py --sub-dir repo/submission_ready
 ```
 
-## Data-source behavior
-- `data_source: repo`, `@repo`, or `demo` -> `paths.repo_data_dir` (default `demo_data`)
-- `data_source: local` -> `paths.local_data_dir` (default `data`)
+## Package outputs
 
-## Repo-mode portability safeguards
-When running demo/repo mode without private external files:
-- calibration step auto-disables if the calibration reference CSV is missing
-- validation external reference path is dropped if missing
-- internal block-model validation auto-disables if `internal_validation.model_csv` is missing
+- `01_Title_Page.docx`
+- `02_Highlights.docx`
+- `03_Graphical_Abstract.tif`
+- `04_Manuscript.docx`
+- `05_Tables.docx`
+- `06_Figure_Captions.docx`
+- `07_Cover_Letter.docx`
+- `08_Declaration_of_Interest.docx`
+- `09_Author_Statement.docx`
+- numbered TIFF figures
+- compact supplementary ZIP and CSV files
 
-## Demo-data schema (`demo_data/`)
-- `collar.csv`: `hole_id,x,y,z,total_depth,azimuth_deg,dip_deg`
-- `survey.csv`: `hole_id,depth,azimuth_deg,dip_deg`
-- `assay.csv`: `hole_id,from_m,to_m,tgc_pct`
-- `lithology.csv`: `hole_id,from_m,to_m,lith_code`
+## Data policy
 
-## Paper/build scripts
-- Build assembled paper package: `python scripts/build_paper.py`
-- Export DOCX: `bash scripts/export_docx.sh`
-- Export PDF (if XeLaTeX installed): `bash scripts/export_pdf.sh`
-
-## Git push notes
-- Keep private/confidential data out of tracked files.
-- Keep `demo_data/` as reproducible public sample data.
-- Keep repo default config on `data_source: repo`.
+Keep private drillhole data out of tracked files. The public sample tables in `demo_data/` are demonstration inputs only.

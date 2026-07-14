@@ -6,9 +6,10 @@
 |---|---:|---:|---:|---|
 | Drillhole policy | 100 used; 100 validated | - | - | Study scope. |
 | Raw assays | 100 | 3,350 | 7902.37 | TGC source. |
+| Analytical QA/QC controls | - | 373 | - | 93 CRMs, 94 blanks, 93 coarse duplicates and 93 pulp duplicates; accepted batch review. |
 | Lithology logs | 100 | 1,248 | 9416.90 | Geology source. |
 | Desurveyed assays | 100 | 3,350 | 7902.37 | XYZ support. |
-| 2 m composites | 100 | 4,129 | 7957.70 | Composite support. |
+| 2 m composites | 100 | 4,129 | 7957.70 | Nominal span; 7878.28 m assay-covered and 79.42 m internal-gap sensitivity across 88 composites. |
 | Domain composites | 100 | 4,129 | 7957.70 | SGS input: 3,566/382/181. |
 | Geological domains | 100 | 3,566 fresh graphitic; 382 weathered graphitic; 181 host/waste | - | Graphitic-only weathering contrast and host/waste control. |
 | Online Resource 2 | - | 13 worksheets | - | Audit-level run metadata, validation, variogram, convergence, support, contact, occupancy and repeated-null summaries. |
@@ -35,7 +36,7 @@
 | Grade neighbourhood | fixed minimum/maximum 3/20; simulated nodes enter the conditioning search |
 | Variogram | exponential; range parameter 250 m; nugget 0.20; structured sill 0.80; 50 m lags, 10 lags, 500 m maximum distance and 22.5 degrees tolerance |
 | Declustering | 200 x 200 x 5 m cells; 100/200/300 m XY cells at 5 m Z give all-composite means 3.936/3.794/3.800% TGC; graphitic-only means 4.070/3.921/3.926% TGC. |
-| Numerical mean check | data 4.127% TGC; whole reporting-support SGS 2.056%; graphitic-probability >=0.70 cells 3.704%; host-probability >=0.70 cells 1.134% |
+| Numerical mean check | full grid 2.056%; fractional envelope 3.829%; full-cell core 3.903%; declustered graphitic composites 3.921% TGC |
 | Validation scope | histogram/Q-Q, support-matched swaths, variogram envelopes, ensemble stability, hole-grouped categorical reliability/confusion, 20-versus-20 null sensitivity, null-realisation bootstrap and withheld-composite baselines; no independent blocked rerun of the final SGS ensemble |
 
 ## Table 4. Validation and Information-Content Comparison

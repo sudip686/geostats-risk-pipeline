@@ -39,7 +39,7 @@ variogram:
   - exponential
   - spherical
   fit_method: weighted_ls
-  max_samples: 800
+  max_samples: 2500
   max_pairs: 200000
   anisotropy:
     ranges_m:
